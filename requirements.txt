@@ -1,0 +1,26 @@
+# Google Cloud dependencies
+google-auth==2.34.0
+google-auth-httplib2==0.2.0
+google-auth-oauthlib==1.2.0
+google-api-python-client==2.140.0
+google-cloud-secret-manager==2.20.0
+google-cloud-pubsub==2.18.4
+
+# Gemini/AI
+requests==2.32.3
+
+# Date/Time handling
+python-dateutil==2.9.0
+pytz==2024.1
+tzdata>=2023.3
+
+# Caching
+cachetools==5.4.0
+
+# Cloud Functions framework
+functions-framework>=3.8.0
+cloudevents>=1.10.0
+
+# Text processing
+beautifulsoup4==4.12.3
+html2text==2024.2.26
