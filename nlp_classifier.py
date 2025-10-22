@@ -1,6 +1,6 @@
 """
 NLP Classification module for email filtering and categorization
-Uses regex, spaCy, and simple heuristics for fast pre-filtering
+Uses regex, heuristics, and pattern matching for fast pre-filtering
 """
 
 import re
@@ -13,7 +13,9 @@ class EmailClassifier:
     """
 
     def __init__(self):
-        """Initialize classifier"""
+        """Initialize classifier with patterns and categories"""
+        print("🧠 Initializing EmailClassifier...")
+        
         self.acknowledgment_patterns = [
             r'^grazie\.?\s*$',
             r'^grazie\s+mille\.?\s*$',
@@ -89,6 +91,8 @@ class EmailClassifier:
             r'\bwe are\b.*\bproject\b', r'\bwe would like\b',
             r'\bcontribute\b', r'\bparticipate\b'
         ]
+        
+        print(f"✓ Classifier initialized with {len(self.categories)} categories")
 
     def classify_email(self, subject: str, body: str, is_reply: bool = False) -> Dict:
         """
@@ -106,12 +110,17 @@ class EmailClassifier:
             - category: Optional[str]
             - confidence: float
         """
+        
+        print(f"   🔍 Classifying: '{subject[:50]}...'")
 
         # Stage 1: Fast regex filters
         main_content = self._extract_main_content(body)
+        content_length = len(main_content)
+        print(f"      Main content: {content_length} chars")
 
         # Check for simple acknowledgment
         if self._is_simple_acknowledgment(main_content):
+            print(f"      ✗ Simple acknowledgment detected")
             return {
                 'should_reply': False,
                 'reason': 'simple_acknowledgment',
@@ -121,6 +130,7 @@ class EmailClassifier:
 
         # Check for greeting only
         if self._is_greeting_only(main_content):
+            print(f"      ✗ Greeting only")
             return {
                 'should_reply': False,
                 'reason': 'greeting_only',
@@ -128,9 +138,11 @@ class EmailClassifier:
                 'confidence': 0.95
             }
 
-        # NEW: Check for legitimate request indicators (BEFORE other filters)
+        # Check for legitimate request indicators (BEFORE other filters)
         if self._has_legitimate_request_indicator(subject + ' ' + main_content):
             category = self._categorize_content(subject + ' ' + main_content)
+            print(f"      ✓ Legitimate request indicator found")
+            print(f"      → Category: {category or 'collaboration'}")
             return {
                 'should_reply': True,
                 'reason': 'legitimate_request',
@@ -142,6 +154,7 @@ class EmailClassifier:
         # Check if it's a follow-up without new questions
         if is_reply and not self._contains_questions(main_content):
             if self._is_confirmation_without_questions(main_content):
+                print(f"      ✗ Confirmation without questions")
                 return {
                     'should_reply': False,
                     'reason': 'confirmation_without_questions',
@@ -152,27 +165,35 @@ class EmailClassifier:
         # Stage 3: Check for questions or requests
         has_questions = self._contains_questions(main_content)
         has_request = self._contains_request(main_content)
+        
+        print(f"      Questions: {has_questions}, Requests: {has_request}")
 
         MIN_CONTENT_LENGTH = 40
 
         if not has_questions and not has_request:
             # Rispondi comunque se il messaggio è sostanzioso
             if len(main_content.strip()) >= MIN_CONTENT_LENGTH:
+                print(f"      ✓ Sustained message (>={MIN_CONTENT_LENGTH} chars)")
                 return {
                     'should_reply': True,
                     'reason': 'sustained_message_without_explicit_request',
                     'category': 'general_contact',
                     'confidence': 0.7
                 }
-            # Check for implicit request (fallback: tua logica esistente)
+            
+            # Check for implicit request
             if self._has_implicit_request(main_content):
                 category = self._categorize_content(subject + ' ' + main_content)
+                print(f"      ✓ Implicit request detected")
+                print(f"      → Category: {category or 'general'}")
                 return {
                     'should_reply': True,
                     'reason': 'implicit_request',
                     'category': category,
                     'confidence': 0.75
                 }
+            
+            print(f"      ✗ No actionable content")
             return {
                 'should_reply': False,
                 'reason': 'no_actionable_content',
@@ -182,6 +203,10 @@ class EmailClassifier:
 
         # Stage 4: Categorize email
         category = self._categorize_content(subject + ' ' + main_content)
+        
+        print(f"      ✓ Needs response")
+        print(f"      → Category: {category or 'general'}")
+        
         return {
             'should_reply': True,
             'reason': 'needs_response',
@@ -189,11 +214,11 @@ class EmailClassifier:
             'confidence': 0.8 if category else 0.6
         }
 
-    # ---------------- Helper methods ----------------
+    # ================ Helper Methods ================
 
     def _has_legitimate_request_indicator(self, text: str) -> bool:
         """
-        NEW: Check if text contains indicators of a legitimate request
+        Check if text contains indicators of a legitimate request
         even if it doesn't fit standard patterns
         """
         text_lower = text.lower()
@@ -213,8 +238,10 @@ class EmailClassifier:
             r'^-{3,}.*Original Message.*$',  # Original message separator
             r'^_{3,}.*$',  # Underscore separator
         ]
+        
         lines = body.split('\n')
         clean_lines = []
+        
         for line in lines:
             is_quote = False
             for marker in markers:
@@ -224,7 +251,9 @@ class EmailClassifier:
             if is_quote:
                 break
             clean_lines.append(line)
+        
         content = '\n'.join(clean_lines).strip()
+        
         # Remove common signature markers
         signature_markers = [
             r'cordiali saluti',
@@ -235,10 +264,12 @@ class EmailClassifier:
             r'sent from my iphone',
             r'inviato da'
         ]
+        
         for marker in signature_markers:
             match = re.search(marker, content, re.IGNORECASE)
             if match:
                 content = content[:match.start()].strip()
+        
         return content
 
     def _is_simple_acknowledgment(self, text: str) -> bool:
@@ -247,18 +278,22 @@ class EmailClassifier:
         """
         if not text or len(text.strip()) == 0:
             return False
+        
         normalized = text.lower().strip()
         normalized = re.sub(r'[^\w\sàèéìòù?!]', '', normalized)
         normalized = re.sub(r'\s+', ' ', normalized)
+        
         for pattern in self.acknowledgment_patterns:
             if re.match(pattern, normalized, re.IGNORECASE):
                 return True
+        
         word_count = len(normalized.split())
         if word_count <= 5:
             thank_words = ['grazie', 'ringrazio', 'ricevuto', 'ok', 'perfetto']
             if any(word in normalized for word in thank_words):
                 if '?' not in text:
                     return True
+        
         return False
 
     def _is_greeting_only(self, text: str) -> bool:
@@ -267,9 +302,11 @@ class EmailClassifier:
         """
         normalized = text.lower().strip()
         normalized = re.sub(r'[^\w\sàèéìòù]', '', normalized)
+        
         for pattern in self.greeting_only_patterns:
             if re.match(pattern, normalized, re.IGNORECASE):
                 return True
+        
         return False
 
     def _contains_questions(self, text: str) -> bool:
@@ -297,6 +334,7 @@ class EmailClassifier:
         for word_pattern in italian_question_words + english_question_words:
             if re.search(word_pattern, text_lower):
                 return True
+        
         return False
 
     def _contains_request(self, text: str) -> bool:
@@ -317,10 +355,12 @@ class EmailClassifier:
             r'\bcould you\b', r'\bwould you\b', r'\bcan you\b',
             r'\bmay i\b', r'\bplease\b'
         ]
+        
         text_lower = text.lower()
         for pattern in request_patterns:
             if re.search(pattern, text_lower):
                 return True
+        
         return False
 
     def _has_implicit_request(self, text: str) -> bool:
@@ -343,10 +383,12 @@ class EmailClassifier:
             r'\bproject\b', r'\bexhibition\b',
             r'\bcollecting\b', r'\bsend\b'
         ]
+        
         text_lower = text.lower()
         for pattern in implicit_patterns:
             if re.search(pattern, text_lower):
                 return True
+        
         return False
 
     def _is_confirmation_without_questions(self, text: str) -> bool:
@@ -375,6 +417,7 @@ class EmailClassifier:
             Category name or None
         """
         text_lower = text.lower()
+        
         # Count keyword matches per category
         category_scores = {}
         for category, keywords in self.categories.items():
@@ -386,7 +429,8 @@ class EmailClassifier:
             return None
 
         # Return category with highest score
-        return max(category_scores, key=category_scores.get)
+        best_category = max(category_scores, key=category_scores.get)
+        return best_category
 
     def should_process_by_time(self, is_suspension_time: bool) -> bool:
         """
@@ -399,3 +443,20 @@ class EmailClassifier:
             True if should process
         """
         return not is_suspension_time
+    
+    def get_stats(self) -> Dict:
+        """
+        Get classifier statistics
+        
+        Returns:
+            Dictionary with classifier stats
+        """
+        return {
+            'categories': len(self.categories),
+            'acknowledgment_patterns': len(self.acknowledgment_patterns),
+            'greeting_patterns': len(self.greeting_only_patterns),
+            'legitimate_indicators': len(self.legitimate_request_indicators),
+            'category_keywords': {
+                cat: len(keywords) for cat, keywords in self.categories.items()
+            }
+        }
