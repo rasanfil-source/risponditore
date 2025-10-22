@@ -5,17 +5,65 @@ Handles generating responses and summarizing conversations
 
 import requests
 import json
+import time
 from typing import Optional, Dict
 import config
 from utils import get_current_season, get_special_day_greeting
 from datetime import datetime
 from zoneinfo import ZoneInfo
 
+# Costante a livello di modulo
+ITALIAN_TZ = ZoneInfo("Europe/Rome")
+
+
+# ============ Retry Decorator ============
+
+def retry_on_failure(max_retries=3, delay=2):
+    """
+    Decorator per retry automatico in caso di errore
+    
+    Args:
+        max_retries: Numero massimo di tentativi
+        delay: Ritardo base in secondi (con exponential backoff)
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries - 1:
+                        wait_time = delay * (2 ** attempt)  # Exponential backoff
+                        print(f"⚠️  Gemini API attempt {attempt + 1}/{max_retries} failed: {e}")
+                        print(f"   Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        print(f"❌ All {max_retries} Gemini API attempts failed")
+                        raise
+                except Exception as e:
+                    # Per errori non di rete, non fare retry
+                    print(f"❌ Gemini API error (no retry): {e}")
+                    raise
+        return wrapper
+    return decorator
+
+
+# ============ GeminiService Class ============
+
 class GeminiService:
     def __init__(self):
         """Initialize Gemini service with API configuration"""
         self.api_key = config.GEMINI_API_KEY
         self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.MODEL_NAME}:generateContent"
+        
+        # Validazione API key
+        if not self.api_key:
+            raise ValueError(
+                "GEMINI_API_KEY not configured in environment variables. "
+                "Please set GEMINI_API_KEY before running."
+            )
+        
+        print(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
     
     def _detect_email_language(self, email_content: str, email_subject: str) -> str:
         """
@@ -54,14 +102,14 @@ class GeminiService:
         scores = {'it': italian_score, 'en': english_score, 'es': spanish_score}
         detected_lang = max(scores, key=scores.get)
         
-        print(f"Language detection scores: IT={italian_score}, EN={english_score}, ES={spanish_score}")
+        print(f"🌍 Language detection - IT={italian_score}, EN={english_score}, ES={spanish_score}")
         
         # If score is too low, default to Italian
         if scores[detected_lang] < 2:
-            print(f"Low confidence, defaulting to Italian")
+            print(f"   Low confidence, defaulting to Italian")
             return 'it'
         
-        print(f"Detected language: {detected_lang.upper()} (score: {scores[detected_lang]})")
+        print(f"   Detected: {detected_lang.upper()} (score: {scores[detected_lang]})")
         return detected_lang
     
     def _get_adaptive_greeting(self, now: datetime, sender_name: str, language: str = 'it') -> tuple:
@@ -154,6 +202,7 @@ class GeminiService:
         
         return greeting, closing
     
+    @retry_on_failure(max_retries=3, delay=2)
     def generate_response(
         self,
         email_content: str,
@@ -165,7 +214,7 @@ class GeminiService:
         category: Optional[str] = None
     ) -> Optional[str]:
         """
-        Generate AI response for an email
+        Generate AI response for an email with retry logic
         
         Args:
             email_content: Content of the email
@@ -212,8 +261,10 @@ class GeminiService:
             category
         )
         
-        # Call Gemini API
+        # Call Gemini API with timeout
         try:
+            print(f"🤖 Calling Gemini API for: {sender_email}")
+            
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
@@ -223,27 +274,34 @@ class GeminiService:
                         "maxOutputTokens": config.MAX_OUTPUT_TOKENS
                     }
                 },
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
+                timeout=30  # 30 secondi di timeout
             )
             
             if response.status_code == 200:
                 result = response.json()
                 if result.get("candidates") and result["candidates"][0].get("content"):
-                    return result["candidates"][0]["content"]["parts"][0]["text"]
+                    generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
+                    print(f"✓ Gemini response generated ({len(generated_text)} chars)")
+                    return generated_text
                 else:
-                    print(f"Invalid Gemini response structure: {result}")
+                    print(f"❌ Invalid Gemini response structure: {result}")
                     return None
             else:
-                print(f"Gemini API error: {response.status_code} - {response.text}")
+                print(f"❌ Gemini API error: {response.status_code} - {response.text}")
                 return None
                 
+        except requests.exceptions.Timeout:
+            print(f"⏱️  Gemini API timeout after 30s")
+            raise
         except Exception as e:
-            print(f"Error calling Gemini API: {e}")
-            return None
+            print(f"❌ Error calling Gemini API: {e}")
+            raise
     
+    @retry_on_failure(max_retries=2, delay=1)
     def summarize_conversation(self, conversation_history: str) -> str:
         """
-        Summarize a long conversation history
+        Summarize a long conversation history with retry logic
         
         Args:
             conversation_history: Full conversation history
@@ -271,6 +329,8 @@ Conversazione:
 """
         
         try:
+            print(f"📝 Summarizing conversation ({word_count} words)...")
+            
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
@@ -280,7 +340,8 @@ Conversazione:
                         "maxOutputTokens": 150
                     }
                 },
-                headers={"Content-Type": "application/json"}
+                headers={"Content-Type": "application/json"},
+                timeout=20  # 20 secondi di timeout per summarization
             )
             
             if response.status_code == 200:
@@ -290,13 +351,18 @@ Conversazione:
                     
                     # Validate summary
                     if len(summary.split()) < 15 or "non ho abbastanza informazioni" in summary.lower():
-                        print("Summary too short or vague, using full history")
+                        print("⚠️  Summary too short or vague, using full history")
                         return conversation_history
                     
+                    print(f"✓ Conversation summarized ({len(summary.split())} words)")
                     return summary
                     
+        except requests.exceptions.Timeout:
+            print(f"⏱️  Summary timeout, using full history")
+            return conversation_history
         except Exception as e:
-            print(f"Error summarizing conversation: {e}")
+            print(f"⚠️  Error summarizing conversation: {e}, using full history")
+            return conversation_history
         
         return conversation_history
     
@@ -316,14 +382,13 @@ Conversazione:
         Returns:
             Complete prompt string
         """
-        # Usa il fuso orario italiano invece di UTC
-        ITALIAN_TZ = ZoneInfo("Europe/Rome")
+        # Usa timezone italiano
         now = datetime.now(ITALIAN_TZ)
         
-        # NEW: Detect language
+        # Detect language
         detected_language = self._detect_email_language(email_content, email_subject)
         
-        # NEW: Get adaptive greeting and closing
+        # Get adaptive greeting and closing
         salutation, closing_phrase = self._get_adaptive_greeting(now, sender_name, detected_language)
         
         # Get current season
@@ -334,7 +399,7 @@ Conversazione:
             else 'IMPORTANTE: Siamo attualmente nel periodo INVERNALE. Utilizza SOLO gli orari invernali nelle risposte.'
         )
         
-        # NEW: Language instruction based on detected language
+        # Language instruction based on detected language
         if detected_language == 'en':
             language_instruction = (
                 "🚨 CRITICAL PRIORITY INSTRUCTION 🚨\n"
@@ -476,22 +541,21 @@ Conversazione:
             "- **Uso delle Informazioni Specifiche (CRUCIALE):** Quando la base di conoscenza fornisce un dettaglio specifico, DEVI USARE QUELLO.",
             f"- **Orari stagionali (CRUCIALE):** Quando menzioni orari di apertura, usa ESCLUSIVAMENTE quelli del periodo corrente ({current_season}).",
             f"- **Formato della risposta:** inizia esattamente con \"{salutation}\".",
-             "  Corpo essenziale.",
-             "  Chiudi esattamente con:",
+            "  Corpo essenziale.",
+            "  Chiudi esattamente con:",
             f"  \"{closing_phrase}\"",
-             "  Segreteria Parrocchia Sant'Eugenio",
-             "",
+            "  Segreteria Parrocchia Sant'Eugenio",
+            "",
             f"- **Lingua della risposta (VINCOLANTE):** usa la lingua {detected_language.upper()}.",
             "CONTROLLO FINALE (obbligatorio):",
             f"Dopo aver scritto la risposta, rileggila con attenzione e verifica che sia interamente in {detected_language.upper()}.",
-             "Riconosci con chiarezza ciò che l’interlocutore ha già fatto o comunicato, anche implicitamente.",
-             "Non ripetere istruzioni o informazioni che lui stesso dichiara di aver già eseguito o compreso.",
-             "Evita spiegazioni o suggerimenti che non aggiungono nulla di nuovo, né migliorano la chiarezza o la cortesia.",
-             "Se il messaggio del mittente contiene un’azione già compiuta (es. «ho allegato il modulo»), non dire cosa dovrebbe fare, ma conferma con gratitudine e indica con semplicità il passo successivo, se esiste.",
-             "Infine, rileggi l’intera risposta come se fossi tu a riceverla: deve suonare naturale, pertinente e rispettosa del tempo dell’altro.",
-             "",
-             "Adesso, genera la risposta completa utilizzando tutte le informazioni disponibili:"
-
+            "Riconosci con chiarezza ciò che l'interlocutore ha già fatto o comunicato, anche implicitamente.",
+            "Non ripetere istruzioni o informazioni che lui stesso dichiara di aver già eseguito o compreso.",
+            "Evita spiegazioni o suggerimenti che non aggiungono nulla di nuovo, né migliorano la chiarezza o la cortesia.",
+            "Se il messaggio del mittente contiene un'azione già compiuta (es. «ho allegato il modulo»), non dire cosa dovrebbe fare, ma conferma con gratitudine e indica con semplicità il passo successivo, se esiste.",
+            "Infine, rileggi l'intera risposta come se fossi tu a riceverla: deve suonare naturale, pertinente e rispettosa del tempo dell'altro.",
+            "",
+            "Adesso, genera la risposta completa utilizzando tutte le informazioni disponibili:"
         ])
         
         return '\n'.join(prompt_parts)
