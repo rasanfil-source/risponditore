@@ -6,6 +6,7 @@ from datetime import datetime, timedelta
 import re
 import logging
 from typing import Optional, List, Dict
+from email.utils import parseaddr
 import config
 from zoneinfo import ZoneInfo
 
@@ -178,10 +179,25 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
             logger.info(f"Email ignored due to keyword: '{keyword}'")
             return True
     
+    # Parse a clean email address and domain for accurate matching
+    _, clean_email = parseaddr(sender_email)
+    email_lower = clean_email.lower()
+    domain_lower = email_lower.split('@')[-1] if '@' in email_lower else ''
+
     for sender in ignore_senders:
-        if sender.lower() in sender_email.lower():
-            logger.info(f"Email ignored due to sender: '{sender}'")
-            return True
+        sender_l = sender.lower().strip()
+        if not sender_l:
+            continue
+        # Match full email exactly
+        if '@' in sender_l:
+            if email_lower == sender_l:
+                logger.info(f"Email ignored due to sender (exact match): '{sender}'")
+                return True
+        else:
+            # Match domain by suffix (.example.com should match sub.example.com)
+            if domain_lower == sender_l or domain_lower.endswith('.' + sender_l):
+                logger.info(f"Email ignored due to sender domain: '{sender}'")
+                return True
     
     return False
 
