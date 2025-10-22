@@ -1,6 +1,6 @@
 """
 Gmail service module for email operations
-Handles reading, sending, and labeling emails
+Handles reading, sending, and labeling emails with improved HTML handling
 """
 
 import base64
@@ -9,7 +9,60 @@ from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Optional, Tuple
 import re
 from auth import get_gmail_service
+from html2text import HTML2Text
 import config
+
+
+# ============ Helper Functions ============
+
+def _b64url_decode(data: str) -> bytes:
+    """
+    Decode base64 URL-safe string with automatic padding correction
+    
+    Args:
+        data: Base64 URL-safe encoded string
+        
+    Returns:
+        Decoded bytes
+    """
+    if not data:
+        return b''
+    
+    # Add missing padding for urlsafe base64
+    padding_needed = (-len(data)) % 4
+    if padding_needed:
+        data += '=' * padding_needed
+    
+    try:
+        return base64.urlsafe_b64decode(data)
+    except Exception as e:
+        print(f"⚠️  Base64 decode error: {e}")
+        return b''
+
+
+def _html_to_text(html: str) -> str:
+    """
+    Convert HTML to plain text using html2text
+    
+    Args:
+        html: HTML string
+        
+    Returns:
+        Plain text representation
+    """
+    try:
+        h = HTML2Text()
+        h.ignore_links = False  # Mantiene i link come [text](url)
+        h.ignore_images = True
+        h.body_width = 0  # No line wrapping
+        h.ignore_emphasis = False  # Mantiene *bold* e _italic_
+        return h.handle(html).strip()
+    except Exception as e:
+        print(f"⚠️  HTML to text conversion error: {e}")
+        return html  # Fallback: ritorna HTML grezzo
+
+
+# ============ GmailManager Class ============
 
 class GmailManager:
     def __init__(self, user_email: str = None):
@@ -166,34 +219,96 @@ class GmailManager:
             'message_id': message_id
         }
     
-    def _extract_body(self, payload: Dict) -> str:
+    def _extract_body(self, payload: Dict, max_length: int = 50000) -> str:
         """
-        Extract body text from message payload
+        Extract body text from message payload with improved HTML handling
+        
+        Strategy:
+        1. Recursively walk through multipart structures
+        2. Prefer text/plain over text/html
+        3. Convert HTML to readable text if needed
+        4. Handle base64 decoding errors gracefully
         
         Args:
-            payload: Message payload
+            payload: Message payload dictionary
+            max_length: Maximum body length (default: 50KB)
             
         Returns:
-            Plain text body
+            Plain text body (truncated if too long)
         """
-        body = ''
+        body_text = ''
+        html_fallback = ''
         
+        # Skip attachments
+        filename = payload.get('filename', '')
+        if filename:
+            return ''
+        
+        # Case 1: Multipart message (has 'parts')
         if 'parts' in payload:
             for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    data = part['body']['data']
-                    body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    break
-                elif part['mimeType'] == 'multipart/alternative':
-                    body = self._extract_body(part)
-                    if body:
-                        break
-        elif payload['body'].get('data'):
-            body = base64.urlsafe_b64decode(
-                payload['body']['data']
-            ).decode('utf-8', errors='ignore')
+                mime = part.get('mimeType', '')
+                
+                # Recursive case: nested multipart
+                if mime.startswith('multipart/'):
+                    nested = self._extract_body(part, max_length)
+                    if nested:
+                        # Se troviamo text/plain in nested, ritorna subito
+                        if body_text == '':
+                            body_text = nested
+                        if not mime.endswith('alternative'):
+                            # Per multipart/mixed, ritorna subito
+                            return nested
+                
+                # text/plain - PRIORITÀ MASSIMA
+                elif mime == 'text/plain':
+                    data = part.get('body', {}).get('data', '')
+                    if data:
+                        try:
+                            body_text = _b64url_decode(data).decode('utf-8', errors='ignore')
+                            return body_text  # Ritorna subito se troviamo text/plain
+                        except Exception as e:
+                            print(f"⚠️  Error decoding text/plain: {e}")
+                
+                # text/html - FALLBACK
+                elif mime == 'text/html':
+                    data = part.get('body', {}).get('data', '')
+                    if data and not html_fallback:  # Salva solo il primo HTML trovato
+                        try:
+                            html = _b64url_decode(data).decode('utf-8', errors='ignore')
+                            html_fallback = _html_to_text(html)
+                        except Exception as e:
+                            print(f"⚠️  Error decoding text/html: {e}")
+            
+            # Se non abbiamo trovato text/plain, usa HTML convertito
+            body_text = body_text if body_text else html_fallback
         
-        return body
+        # Case 2: Single part message (no 'parts')
+        else:
+            data = payload.get('body', {}).get('data', '')
+            mime = payload.get('mimeType', '')
+            
+            if data:
+                try:
+                    decoded = _b64url_decode(data).decode('utf-8', errors='ignore')
+                    
+                    # Se è HTML, convertilo
+                    if mime == 'text/html':
+                        body_text = _html_to_text(decoded)
+                    else:
+                        # Altrimenti ritorna come plain text
+                        body_text = decoded
+                        
+                except Exception as e:
+                    print(f"⚠️  Error decoding single part body: {e}")
+                    return ''
+        
+        # Truncate if too long
+        if body_text and len(body_text) > max_length:
+            print(f"⚠️  Body too long ({len(body_text)} chars), truncating to {max_length}")
+            return body_text[:max_length] + "\n\n[... corpo messaggio troncato ...]"
+        
+        return body_text
     
     def _extract_sender_name(self, from_field: str) -> str:
         """
@@ -318,16 +433,22 @@ class GmailManager:
         
         return html
     
-    def build_conversation_history(self, messages: List[Dict]) -> str:
+    def build_conversation_history(self, messages: List[Dict], max_messages: int = 10) -> str:
         """
         Build conversation history from messages
         
         Args:
             messages: List of message dictionaries
+            max_messages: Maximum number of messages to include (default: 10)
             
         Returns:
             Formatted conversation history string
         """
+        # Limita il numero di messaggi per evitare contesti troppo lunghi
+        if len(messages) > max_messages:
+            print(f"⚠️  Thread con {len(messages)} messaggi, limitando a ultimi {max_messages}")
+            messages = messages[-max_messages:]
+        
         history = []
         
         for msg in messages:
@@ -336,7 +457,12 @@ class GmailManager:
             else:
                 prefix = f"Utente ({msg['sender']})"
             
-            history.append(f"{prefix}: {msg['body']}\n---")
+            # Tronca messaggi molto lunghi
+            body = msg['body']
+            if len(body) > 2000:
+                body = body[:2000] + "\n[... messaggio troncato ...]"
+            
+            history.append(f"{prefix}: {body}\n---")
         
         return '\n'.join(history)
     
