@@ -9,6 +9,8 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Optional
 import re
+import html
+from email.utils import parseaddr
 from auth import get_gmail_service
 from html2text import HTML2Text
 import config
@@ -145,8 +147,9 @@ class GmailManager:
         try:
             query = 'is:unread'
             if exclude_label:
-                # Note: Gmail query uses label name, not ID
-                query += f' -label:{exclude_label}'
+                # Quote label names to handle spaces/special characters safely
+                safe_label = exclude_label.replace('"', '\\"')
+                query += f' -label:"{safe_label}"'
             
             results = self.service.users().threads().list(
                 userId='me',
@@ -386,12 +389,26 @@ class GmailManager:
         try:
             # Create reply message
             message = MIMEMultipart('alternative')
-            
-            # Set headers
-            message['To'] = original_message['sender']
-            message['Subject'] = f"Re: {original_message['subject']}"
-            message['In-Reply-To'] = original_message['message_id']
-            message['References'] = original_message['message_id']
+
+            # Resolve and sanitize recipient address
+            sender_email = original_message.get('sender_email') or self._extract_email_address(
+                original_message.get('sender', '')
+            )
+            _, parsed_email = parseaddr(sender_email)
+            message['To'] = parsed_email or sender_email
+
+            # Sanitize subject to prevent header injection
+            raw_subject = original_message.get('subject', '')
+            safe_subject = re.sub(r'[\r\n]+', ' ', raw_subject).strip()
+            message['Subject'] = f"Re: {safe_subject}"[:255]
+
+            # Add reply headers if message-id available (sanitized)
+            msg_id = original_message.get('message_id') or ''
+            if msg_id:
+                safe_msg_id = re.sub(r'[\r\n]+', '', msg_id).strip()
+                if safe_msg_id:
+                    message['In-Reply-To'] = safe_msg_id
+                    message['References'] = safe_msg_id
             
             # Create plain text part
             text_part = MIMEText(reply_text, 'plain', 'utf-8')
@@ -435,9 +452,9 @@ class GmailManager:
         Returns:
             HTML formatted reply
         """
-        # Convert plain text to HTML
-        reply_html = reply_text.replace('\n', '<br>')
-        original_html = original_body.replace('\n', '<br>')
+        # Convert plain text to HTML and escape user-provided content to prevent HTML injection
+        reply_html = html.escape(reply_text).replace('\n', '<br>')
+        original_html = html.escape(original_body).replace('\n', '<br>')
         
         # MEDIUM PRIORITY FIX: Reduced font-size 20px for better compatibility
         html = f'''
