@@ -50,11 +50,15 @@ class PubSubHandler:
             if 'emailAddress' not in notification:
                 print("Invalid Gmail notification format")
                 return None
-            
+
+            # Prefer publishTime from Pub/Sub envelope when present
+            attributes = event['message'].get('attributes', {}) if isinstance(event.get('message'), dict) else {}
+            publish_time = event['message'].get('publishTime') or attributes.get('publishTime') or event.get('timestamp')
+
             return {
                 'email_address': notification['emailAddress'],
                 'history_id': notification.get('historyId'),
-                'timestamp': event.get('timestamp')
+                'timestamp': publish_time
             }
             
         except Exception as e:
