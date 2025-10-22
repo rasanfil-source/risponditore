@@ -3,8 +3,8 @@ Main entry point for Parish Secretary Cloud Function (Pub/Sub triggered)
 Processes Gmail notifications via Pub/Sub events
 """
 
-import base64
 import json
+import logging
 from typing import Dict
 import functions_framework
 from cloudevents.http import CloudEvent
@@ -15,10 +15,17 @@ from pubsub_handler import PubSubHandler
 from email_processor import EmailProcessor
 from utils import is_in_suspension_time
 
+# Configure logging
+logging.basicConfig(
+    level=getattr(logging, config.LOG_LEVEL, logging.INFO),
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
+
 # Initialize handlers (created once per cold start)
 pubsub_handler = None
 email_processor = None
-_init_done = False  # <-- top-level, fuori da funzioni/classi
+_init_done = False
 
 def init_services():
     """Initialize services (lazy loading)"""
@@ -30,15 +37,15 @@ def init_services():
     if email_processor is None:
         email_processor = EmailProcessor()
 
-    # Verifica autenticazione SOLO a cold start
+    # CRITICAL FIX: Verifica autenticazione SOLO a cold start (non ad ogni invocazione)
     if not _init_done:
         try:
             if not verify_authentication():
-                print("Authentication failed at cold start")
+                logger.error("Authentication failed at cold start")
             else:
-                print("Authentication verified at cold start")
-        except Exception as _e:
-            print(f"Auth check error at init: {_e}")
+                logger.info("✓ Authentication verified at cold start")
+        except Exception as e:
+            logger.error(f"Auth check error at init: {e}")
         _init_done = True
 
 
@@ -54,22 +61,22 @@ def process_gmail_notification(cloud_event: CloudEvent):
         # Check if system is manually paused
         import os
         if os.environ.get('SYSTEM_PAUSED', 'false').lower() == 'true':
-            print("⏸️  Sistema in PAUSA (SYSTEM_PAUSED=true)")
+            logger.warning("⏸️  Sistema in PAUSA (SYSTEM_PAUSED=true)")
             return
         
-        print(f"Received Pub/Sub event: {cloud_event.data}")
+        logger.info(f"Received Pub/Sub event: {cloud_event.data}")
         
         # Initialize services
         init_services()
         
-        # Parse Pub/Sub message - passa cloud_event.data (non cloud_event)
+        # Parse Pub/Sub message
         notification_data = pubsub_handler.parse_pubsub_message(cloud_event.data)
         
         if not notification_data:
-            print("Invalid notification data")
+            logger.warning("Invalid notification data")
             return
         
-        print(f"Processing notification for: {notification_data.get('email_address')}")
+        logger.info(f"Processing notification for: {notification_data.get('email_address')}")
         
         # Check if in suspension time
         in_suspension = is_in_suspension_time()
@@ -81,21 +88,23 @@ def process_gmail_notification(cloud_event: CloudEvent):
         )
         
         if not decision['should_process']:
-            print(f"Skipping notification: {decision['reason']}")
+            logger.info(f"Skipping notification: {decision['reason']}")
             return
         
-        # Verify authentication
-        if not verify_authentication():
-            print("Authentication failed")
-            return
+        # CRITICAL FIX: CONDITIONAL AUTH CHECK - Only if explicitly enabled
+        if config.VERIFY_AUTH_ON_EACH_INVOCATION:
+            logger.info("Verifying authentication (per-invocation check enabled)")
+            if not verify_authentication():
+                logger.error("Authentication failed")
+                return
         
         # Process new messages
         result = email_processor.process_new_messages()
         
-        print(f"Processing complete: {result}")
+        logger.info(f"Processing complete: {result}")
         
     except Exception as e:
-        print(f"Error in process_gmail_notification: {e}")
+        logger.error(f"Error in process_gmail_notification: {e}", exc_info=True)
         # Don't raise - we don't want Pub/Sub to retry on permanent errors
 
 
@@ -136,16 +145,18 @@ def process_emails_http(request):
             }
             return (json.dumps(result), 200, headers)
         
-        # Verify authentication
-        if not verify_authentication():
-            result = {
-                'status': 'error',
-                'message': 'Authentication failed'
-            }
-            return (json.dumps(result), 500, headers)
-        
         # Initialize services
         init_services()
+        
+        # CRITICAL FIX: CONDITIONAL AUTH CHECK - Only if explicitly enabled
+        if config.VERIFY_AUTH_ON_EACH_INVOCATION:
+            logger.info("Verifying authentication (per-invocation check enabled)")
+            if not verify_authentication():
+                result = {
+                    'status': 'error',
+                    'message': 'Authentication failed'
+                }
+                return (json.dumps(result), 500, headers)
         
         # Process emails
         result = email_processor.process_new_messages()
@@ -154,7 +165,7 @@ def process_emails_http(request):
         return (json.dumps(result), 200, headers)
         
     except Exception as e:
-        print(f"Error in HTTP endpoint: {e}")
+        logger.error(f"Error in HTTP endpoint: {e}", exc_info=True)
         error_response = {
             'status': 'error',
             'message': str(e)
