@@ -22,6 +22,7 @@ PUBSUB_SUBSCRIPTION = os.environ.get('PUBSUB_SUBSCRIPTION', 'gmail-notifications
 
 # ============ Gmail Configuration ============
 LABEL_NAME = os.environ.get('LABEL_NAME', 'IA')
+ERROR_LABEL_NAME = os.environ.get('ERROR_LABEL_NAME', 'IA-Error')  # NEW: Error label
 MAX_EMAILS_PER_RUN = int(os.environ.get('MAX_EMAILS_PER_RUN', '10'))
 
 # ============ Gemini Model Configuration ============
@@ -31,6 +32,20 @@ MAX_OUTPUT_TOKENS = 800
 
 # ============ Cache Configuration ============
 CACHE_DURATION_SECONDS = 3600  # 1 hour
+
+# ============ CRITICAL NEW FLAGS ============
+# Control duplicate auth checks
+VERIFY_AUTH_ON_EACH_INVOCATION = os.getenv("VERIFY_AUTH_ON_EACH_INVOCATION", "false").lower() == "true"
+
+# Enable DRY-RUN mode for testing (prevents actual email sending)
+DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
+
+# Logging configuration
+LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
+
+# Prompt size limits (characters)
+MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "15000"))
+MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "2000"))
 
 # ============ NLP Classification Thresholds ============
 SIMPLE_ACK_THRESHOLD = 0.9  # Soglia per classificare come semplice ringraziamento
@@ -68,7 +83,8 @@ HOLIDAYS = [
 ]
 
 # ============ Email Ignore Lists ============
-IGNORE_DOMAINS = [
+# RENAMED for clarity: can contain both domains and full emails
+IGNORE_SENDERS = [
     'amazon.com',
     'paypal.com',
     'ebay.com',
@@ -183,6 +199,10 @@ def validate_config():
     if not PUBSUB_SUBSCRIPTION:
         warnings.append("PUBSUB_SUBSCRIPTION non configurato (necessario per notifiche push)")
     
+    # DRY_RUN warning
+    if DRY_RUN:
+        warnings.append("⚠️  DRY_RUN MODE ACTIVE - Emails will NOT be sent!")
+    
     # === STAMPA RISULTATI ===
     
     if errors:
@@ -211,7 +231,12 @@ def validate_config():
     print(f"   Gemini Model: {MODEL_NAME}")
     print(f"   Max emails per run: {MAX_EMAILS_PER_RUN}")
     print(f"   Label name: {LABEL_NAME}")
+    print(f"   Error label: {ERROR_LABEL_NAME}")
     print(f"   Cache duration: {CACHE_DURATION_SECONDS}s")
+    print(f"   DRY_RUN: {'YES ⚠️' if DRY_RUN else 'NO'}")
+    print(f"   Auth per-invocation: {'YES' if VERIFY_AUTH_ON_EACH_INVOCATION else 'NO (cold start only)'}")
+    print(f"   Max KB size: {MAX_KNOWLEDGE_BASE_CHARS} chars")
+    print(f"   Max conversation: {MAX_CONVERSATION_CHARS} chars")
     print()
 
 
@@ -231,13 +256,18 @@ def get_config_summary() -> dict:
         'pubsub_topic': PUBSUB_TOPIC,
         'pubsub_subscription': PUBSUB_SUBSCRIPTION,
         'label_name': LABEL_NAME,
+        'error_label_name': ERROR_LABEL_NAME,
         'max_emails_per_run': MAX_EMAILS_PER_RUN,
         'model_name': MODEL_NAME,
         'temperature': TEMPERATURE,
         'max_output_tokens': MAX_OUTPUT_TOKENS,
         'cache_duration': CACHE_DURATION_SECONDS,
-        'ignore_domains_count': len(IGNORE_DOMAINS),
+        'ignore_senders_count': len(IGNORE_SENDERS),
         'ignore_keywords_count': len(IGNORE_KEYWORDS),
+        'dry_run': DRY_RUN,
+        'verify_auth_per_invocation': VERIFY_AUTH_ON_EACH_INVOCATION,
+        'max_kb_chars': MAX_KNOWLEDGE_BASE_CHARS,
+        'max_conversation_chars': MAX_CONVERSATION_CHARS,
     }
 
 
