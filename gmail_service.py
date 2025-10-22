@@ -4,13 +4,16 @@ Handles reading, sending, and labeling emails with improved HTML handling
 """
 
 import base64
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-from typing import List, Dict, Optional, Tuple
+from typing import List, Dict, Optional
 import re
 from auth import get_gmail_service
 from html2text import HTML2Text
 import config
+
+logger = logging.getLogger(__name__)
 
 
 # ============ Helper Functions ============
@@ -36,7 +39,7 @@ def _b64url_decode(data: str) -> bytes:
     try:
         return base64.urlsafe_b64decode(data)
     except Exception as e:
-        print(f"⚠️  Base64 decode error: {e}")
+        logger.warning(f"⚠️  Base64 decode error: {e}")
         return b''
 
 
@@ -58,7 +61,7 @@ def _html_to_text(html: str) -> str:
         h.ignore_emphasis = False  # Mantiene *bold* e _italic_
         return h.handle(html).strip()
     except Exception as e:
-        print(f"⚠️  HTML to text conversion error: {e}")
+        logger.warning(f"⚠️  HTML to text conversion error: {e}")
         return html  # Fallback: ritorna HTML grezzo
 
 
@@ -70,9 +73,13 @@ class GmailManager:
         self.service = get_gmail_service(user_email)
         self.user_email = user_email or config.IMPERSONATE_EMAIL
         
+        # CRITICAL FIX: Add label cache to avoid repeated API calls
+        self._label_cache: Dict[str, str] = {}
+        logger.info("✓ Gmail label cache initialized")
+        
     def get_or_create_label(self, label_name: str) -> str:
         """
-        Get or create a Gmail label
+        Get or create a Gmail label with caching
         
         Args:
             label_name: Name of the label
@@ -80,6 +87,11 @@ class GmailManager:
         Returns:
             Label ID
         """
+        # CRITICAL FIX: Check cache first
+        if label_name in self._label_cache:
+            logger.debug(f"📦 Label '{label_name}' found in cache: {self._label_cache[label_name]}")
+            return self._label_cache[label_name]
+        
         try:
             # List all labels
             results = self.service.users().labels().list(userId='me').execute()
@@ -88,6 +100,9 @@ class GmailManager:
             # Check if label exists
             for label in labels:
                 if label['name'] == label_name:
+                    # Cache the result
+                    self._label_cache[label_name] = label['id']
+                    logger.info(f"✓ Label '{label_name}' found: {label['id']}")
                     return label['id']
             
             # Create new label
@@ -102,12 +117,19 @@ class GmailManager:
                 body=label_object
             ).execute()
             
-            print(f"Created new label: {label_name}")
+            # Cache the new label
+            self._label_cache[label_name] = created_label['id']
+            logger.info(f"Created new label: {label_name} ({created_label['id']})")
             return created_label['id']
             
         except Exception as e:
-            print(f"Error managing label: {e}")
+            logger.error(f"Error managing label: {e}")
             raise
+    
+    def clear_label_cache(self):
+        """Clear the label cache (useful for testing or after label changes)"""
+        self._label_cache.clear()
+        logger.info("🗑️  Label cache cleared")
     
     def get_unread_threads(self, exclude_label: str = None, max_results: int = 10) -> List[Dict]:
         """
@@ -123,7 +145,7 @@ class GmailManager:
         try:
             query = 'is:unread'
             if exclude_label:
-                label_id = self.get_or_create_label(exclude_label)
+                # Note: Gmail query uses label name, not ID
                 query += f' -label:{exclude_label}'
             
             results = self.service.users().threads().list(
@@ -146,7 +168,7 @@ class GmailManager:
             return full_threads
             
         except Exception as e:
-            print(f"Error fetching threads: {e}")
+            logger.error(f"Error fetching threads: {e}")
             raise
     
     def add_label_to_thread(self, thread_id: str, label_name: str):
@@ -166,8 +188,10 @@ class GmailManager:
                 body={'addLabelIds': [label_id]}
             ).execute()
             
+            logger.debug(f"Added label '{label_name}' to thread {thread_id}")
+            
         except Exception as e:
-            print(f"Error adding label to thread: {e}")
+            logger.error(f"Error adding label to thread: {e}")
             raise
     
     def extract_message_details(self, message: Dict) -> Dict:
@@ -268,7 +292,7 @@ class GmailManager:
                             body_text = _b64url_decode(data).decode('utf-8', errors='ignore')
                             return body_text  # Ritorna subito se troviamo text/plain
                         except Exception as e:
-                            print(f"⚠️  Error decoding text/plain: {e}")
+                            logger.warning(f"⚠️  Error decoding text/plain: {e}")
                 
                 # text/html - FALLBACK
                 elif mime == 'text/html':
@@ -278,7 +302,7 @@ class GmailManager:
                             html = _b64url_decode(data).decode('utf-8', errors='ignore')
                             html_fallback = _html_to_text(html)
                         except Exception as e:
-                            print(f"⚠️  Error decoding text/html: {e}")
+                            logger.warning(f"⚠️  Error decoding text/html: {e}")
             
             # Se non abbiamo trovato text/plain, usa HTML convertito
             body_text = body_text if body_text else html_fallback
@@ -300,12 +324,12 @@ class GmailManager:
                         body_text = decoded
                         
                 except Exception as e:
-                    print(f"⚠️  Error decoding single part body: {e}")
+                    logger.warning(f"⚠️  Error decoding single part body: {e}")
                     return ''
         
         # Truncate if too long
         if body_text and len(body_text) > max_length:
-            print(f"⚠️  Body too long ({len(body_text)} chars), truncating to {max_length}")
+            logger.warning(f"⚠️  Body too long ({len(body_text)} chars), truncating to {max_length}")
             return body_text[:max_length] + "\n\n[... corpo messaggio troncato ...]"
         
         return body_text
@@ -393,11 +417,11 @@ class GmailManager:
                 }
             ).execute()
             
-            print(f"Reply sent successfully to {original_message['sender']}")
+            logger.info(f"Reply sent successfully to {original_message['sender']}")
             return send_result
             
         except Exception as e:
-            print(f"Error sending reply: {e}")
+            logger.error(f"Error sending reply: {e}")
             raise
     
     def _create_html_reply(self, reply_text: str, original_body: str) -> str:
@@ -415,6 +439,7 @@ class GmailManager:
         reply_html = reply_text.replace('\n', '<br>')
         original_html = original_body.replace('\n', '<br>')
         
+        # MEDIUM PRIORITY FIX: Reduced font-size 20px for better compatibility
         html = f'''
         <div style="font-family: Arial, Helvetica, sans-serif; font-size: 20px; color: #351c75;">
             {reply_html}
@@ -424,7 +449,7 @@ class GmailManager:
                 {original_html}
             </blockquote>
             <br>
-            <span style="font-size: 14px; color: #555;">
+            <span style="font-size: 12px; color: #555;">
                 ---<br>
                 Messaggio generato con l'assistenza dell'IA.
             </span>
@@ -446,7 +471,7 @@ class GmailManager:
         """
         # Limita il numero di messaggi per evitare contesti troppo lunghi
         if len(messages) > max_messages:
-            print(f"⚠️  Thread con {len(messages)} messaggi, limitando a ultimi {max_messages}")
+            logger.warning(f"⚠️  Thread con {len(messages)} messaggi, limitando a ultimi {max_messages}")
             messages = messages[-max_messages:]
         
         history = []
