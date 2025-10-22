@@ -9,6 +9,7 @@ from email.mime.multipart import MIMEMultipart
 from typing import List, Dict, Optional, Tuple
 import re
 from auth import get_gmail_service
+from html2text import HTML2Text
 import config
 
 class GmailManager:
@@ -176,24 +177,63 @@ class GmailManager:
         Returns:
             Plain text body
         """
-        body = ''
-        
+        def _b64url_decode(data: str) -> bytes:
+            if not data:
+                return b''
+            # Add missing padding for urlsafe base64
+            padding_needed = (-len(data)) % 4
+            if padding_needed:
+                data += '=' * padding_needed
+            return base64.urlsafe_b64decode(data)
+
+        def _html_to_text(html: str) -> str:
+            try:
+                h = HTML2Text()
+                h.ignore_links = False
+                h.ignore_images = True
+                h.body_width = 0
+                return h.handle(html).strip()
+            except Exception:
+                return html
+
+        body_text = ''
+
+        # Recursively walk parts to find best candidate: prefer text/plain, fallback to text/html
         if 'parts' in payload:
             for part in payload['parts']:
-                if part['mimeType'] == 'text/plain':
-                    data = part['body']['data']
-                    body = base64.urlsafe_b64decode(data).decode('utf-8', errors='ignore')
-                    break
-                elif part['mimeType'] == 'multipart/alternative':
-                    body = self._extract_body(part)
-                    if body:
-                        break
-        elif payload['body'].get('data'):
-            body = base64.urlsafe_b64decode(
-                payload['body']['data']
-            ).decode('utf-8', errors='ignore')
-        
-        return body
+                mime = part.get('mimeType', '')
+                if mime.startswith('multipart/'):
+                    nested = self._extract_body(part)
+                    if nested:
+                        return nested
+                elif mime == 'text/plain':
+                    data = part.get('body', {}).get('data', '')
+                    try:
+                        body_text = _b64url_decode(data).decode('utf-8', errors='ignore')
+                        return body_text
+                    except Exception:
+                        pass
+                elif mime == 'text/html':
+                    data = part.get('body', {}).get('data', '')
+                    try:
+                        html = _b64url_decode(data).decode('utf-8', errors='ignore')
+                        body_text = _html_to_text(html)
+                        # Keep looking in case a text/plain appears later, but remember this fallback
+                    except Exception:
+                        pass
+            return body_text
+        else:
+            data = payload.get('body', {}).get('data', '')
+            mime = payload.get('mimeType', '')
+            if data:
+                try:
+                    decoded = _b64url_decode(data).decode('utf-8', errors='ignore')
+                    if mime == 'text/html':
+                        return _html_to_text(decoded)
+                    return decoded
+                except Exception:
+                    return ''
+        return ''
     
     def _extract_sender_name(self, from_field: str) -> str:
         """
