@@ -479,7 +479,7 @@ Conversazione:
              "  Corpo essenziale.",
              "  Chiudi esattamente con:",
             f"  \"{closing_phrase}\"",
-             "  Segreteria Parrocchia Sant'Eugenio"
+             "  Segreteria Parrocchia Sant'Eugenio",
              "",
             f"- **Lingua della risposta (VINCOLANTE):** usa la lingua {detected_language.upper()}.",
             "CONTROLLO FINALE (obbligatorio):",
