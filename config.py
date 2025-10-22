@@ -97,6 +97,9 @@ IGNORE_SENDERS = [
     'rego.juan@gmail.com'
 ]
 
+# Alias per compatibilità con codice esistente
+IGNORE_DOMAINS = IGNORE_SENDERS
+
 IGNORE_KEYWORDS = [
     'newsletter',
     'unsubscribe', 
