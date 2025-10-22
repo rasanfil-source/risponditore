@@ -3,6 +3,7 @@ Email processor module - Orchestrates the email processing pipeline
 Coordinates filtering, classification, and response generation
 """
 
+import logging
 from typing import Dict, Optional, List
 from gmail_service import GmailManager
 from sheets_service import SheetsManager
@@ -16,6 +17,9 @@ from utils import (
 from config import FORCE_REPLY_KEYWORDS
 import config
 
+logger = logging.getLogger(__name__)
+
+
 class EmailProcessor:
     """
     Orchestrates the email processing pipeline:
@@ -24,40 +28,40 @@ class EmailProcessor:
 
     def __init__(self):
         """Initialize processor with all required services"""
-        print("🔧 Initializing EmailProcessor...")
+        logger.info("🔧 Initializing EmailProcessor...")
         
         try:
             self.gmail = GmailManager()
-            print("✓ Gmail service initialized")
+            logger.info("✓ Gmail service initialized")
         except Exception as e:
-            print(f"❌ Failed to initialize Gmail service: {e}")
+            logger.error(f"❌ Failed to initialize Gmail service: {e}")
             raise
         
         try:
             self.sheets = SheetsManager()
-            print("✓ Sheets service initialized")
+            logger.info("✓ Sheets service initialized")
         except Exception as e:
-            print(f"❌ Failed to initialize Sheets service: {e}")
+            logger.error(f"❌ Failed to initialize Sheets service: {e}")
             raise
         
         try:
             self.gemini = GeminiService()
-            print("✓ Gemini service initialized")
+            logger.info("✓ Gemini service initialized")
         except Exception as e:
-            print(f"❌ Failed to initialize Gemini service: {e}")
+            logger.error(f"❌ Failed to initialize Gemini service: {e}")
             raise
         
         self.classifier = EmailClassifier()
-        print("✓ Classifier initialized")
+        logger.info("✓ Classifier initialized")
         
         # Load resources
         self._load_resources()
         
-        print("✅ EmailProcessor ready")
+        logger.info("✅ EmailProcessor ready")
 
     def _load_resources(self):
         """Load knowledge base and configuration from Sheets"""
-        print("\n📚 Loading resources from Google Sheets...")
+        logger.info("\n📚 Loading resources from Google Sheets...")
         
         try:
             # Carica knowledge base
@@ -94,36 +98,36 @@ class EmailProcessor:
             try:
                 self.replacements = self.sheets.load_replacements()
             except Exception as e:
-                print(f"⚠️  Could not load replacements sheet (non-critical): {e}")
+                logger.warning(f"⚠️  Could not load replacements sheet (non-critical): {e}")
                 self.replacements = {}
             
             # Stampa statistiche
-            print(f"\n✓ Resources loaded successfully:")
-            print(f"   📖 Knowledge base: {len(self.knowledge_base)} characters")
-            print(f"   🚫 Ignore keywords: {len(self.ignore_keywords)} entries")
-            print(f"   🚫 Ignore domains: {len(self.ignore_domains)} entries")
-            print(f"   🔄 Replacements: {len(self.replacements)} entries")
+            logger.info(f"\n✓ Resources loaded successfully:")
+            logger.info(f"   📖 Knowledge base: {len(self.knowledge_base)} characters")
+            logger.info(f"   🚫 Ignore keywords: {len(self.ignore_keywords)} entries")
+            logger.info(f"   🚫 Ignore domains: {len(self.ignore_domains)} entries")
+            logger.info(f"   🔄 Replacements: {len(self.replacements)} entries")
             
             # Mostra sample della knowledge base
             if self.knowledge_base:
                 lines = self.knowledge_base.split('\n')
                 preview_lines = min(3, len(lines))
-                print(f"   📋 Knowledge base preview (first {preview_lines} lines):")
+                logger.info(f"   📋 Knowledge base preview (first {preview_lines} lines):")
                 for line in lines[:preview_lines]:
                     if line.strip():
-                        print(f"      {line[:80]}...")
+                        logger.info(f"      {line[:80]}...")
             
         except Exception as e:
-            print(f"\n❌ CRITICAL ERROR loading resources:")
-            print(f"   Error: {e}")
-            print(f"   Spreadsheet ID: {config.SPREADSHEET_ID}")
-            print(f"   Sheet Name: {config.SHEET_NAME}")
-            print(f"   Replacements Sheet: {config.REPLACEMENTS_SHEET}")
-            print(f"\n   Troubleshooting:")
-            print(f"   1. Verify SPREADSHEET_ID environment variable")
-            print(f"   2. Check service account has 'Viewer' access to spreadsheet")
-            print(f"   3. Verify sheet names match exactly (case-sensitive)")
-            print(f"   4. Check spreadsheet has data in columns A, B, C")
+            logger.error(f"\n❌ CRITICAL ERROR loading resources:")
+            logger.error(f"   Error: {e}")
+            logger.error(f"   Spreadsheet ID: {config.SPREADSHEET_ID}")
+            logger.error(f"   Sheet Name: {config.SHEET_NAME}")
+            logger.error(f"   Replacements Sheet: {config.REPLACEMENTS_SHEET}")
+            logger.error(f"\n   Troubleshooting:")
+            logger.error(f"   1. Verify SPREADSHEET_ID environment variable")
+            logger.error(f"   2. Check service account has 'Viewer' access to spreadsheet")
+            logger.error(f"   3. Verify sheet names match exactly (case-sensitive)")
+            logger.error(f"   4. Check spreadsheet has data in columns A, B, C")
             raise
 
     def process_new_messages(self) -> Dict:
@@ -133,30 +137,30 @@ class EmailProcessor:
         Returns:
             Processing result dictionary
         """
-        print(f"\n{'='*60}")
-        print(f"🚀 Starting email processing run")
-        print(f"{'='*60}\n")
+        logger.info(f"\n{'='*60}")
+        logger.info(f"🚀 Starting email processing run")
+        logger.info(f"{'='*60}\n")
         
         try:
             # Get or create label
             label_name = config.LABEL_NAME
             
             # Get unread threads
-            print(f"📨 Fetching unread threads (max: {config.MAX_EMAILS_PER_RUN})...")
+            logger.info(f"📨 Fetching unread threads (max: {config.MAX_EMAILS_PER_RUN})...")
             threads = self.gmail.get_unread_threads(
                 exclude_label=label_name,
                 max_results=config.MAX_EMAILS_PER_RUN
             )
             
             if not threads:
-                print("✓ No new messages to process")
+                logger.info("✓ No new messages to process")
                 return {
                     'status': 'success',
                     'processed': 0,
                     'message': 'No new messages'
                 }
 
-            print(f"📬 Found {len(threads)} thread(s) to process\n")
+            logger.info(f"📬 Found {len(threads)} thread(s) to process\n")
 
             # Process each thread
             results = {
@@ -167,44 +171,45 @@ class EmailProcessor:
             }
 
             for i, thread in enumerate(threads, 1):
-                print(f"\n{'─'*60}")
-                print(f"📧 Processing thread {i}/{len(threads)}")
-                print(f"   Thread ID: {thread['id']}")
+                logger.info(f"\n{'─'*60}")
+                logger.info(f"📧 Processing thread {i}/{len(threads)}")
+                logger.info(f"   Thread ID: {thread['id']}")
                 
                 try:
                     result = self._process_thread(thread, label_name)
 
                     if result['status'] == 'replied':
                         results['replied'] += 1
-                        print(f"✓ Thread {i}: Response sent")
+                        logger.info(f"✓ Thread {i}: Response sent")
                     elif result['status'] == 'filtered':
                         results['filtered'] += 1
-                        print(f"⊘ Thread {i}: Filtered ({result.get('reason', 'unknown')})")
+                        logger.info(f"⊘ Thread {i}: Filtered ({result.get('reason', 'unknown')})")
                     elif result['status'] == 'skipped':
-                        print(f"⊘ Thread {i}: Skipped ({result.get('reason', 'unknown')})")
+                        logger.info(f"⊘ Thread {i}: Skipped ({result.get('reason', 'unknown')})")
                     
                     results['processed'] += 1
 
                 except Exception as e:
-                    print(f"❌ Error processing thread {i} ({thread['id']}): {e}")
+                    logger.error(f"❌ Error processing thread {i} ({thread['id']}): {e}", exc_info=True)
                     results['errors'] += 1
                     
-                    # Mark as processed to avoid retry loops
+                    # CRITICAL FIX: Add error label instead of processing label on failures
                     try:
-                        self.gmail.add_label_to_thread(thread['id'], label_name)
-                        print(f"   Marked thread as processed despite error")
+                        error_label = config.ERROR_LABEL_NAME
+                        self.gmail.add_label_to_thread(thread['id'], error_label)
+                        logger.warning(f"   Marked thread with error label: {error_label}")
                     except Exception as label_error:
-                        print(f"   Could not add label: {label_error}")
+                        logger.error(f"   Could not add error label: {label_error}")
 
             # Print summary
-            print(f"\n{'='*60}")
-            print(f"📊 PROCESSING SUMMARY")
-            print(f"{'='*60}")
-            print(f"   Total processed: {results['processed']}")
-            print(f"   ✓ Replied: {results['replied']}")
-            print(f"   ⊘ Filtered: {results['filtered']}")
-            print(f"   ❌ Errors: {results['errors']}")
-            print(f"{'='*60}\n")
+            logger.info(f"\n{'='*60}")
+            logger.info(f"📊 PROCESSING SUMMARY")
+            logger.info(f"{'='*60}")
+            logger.info(f"   Total processed: {results['processed']}")
+            logger.info(f"   ✓ Replied: {results['replied']}")
+            logger.info(f"   ⊘ Filtered: {results['filtered']}")
+            logger.info(f"   ❌ Errors: {results['errors']}")
+            logger.info(f"{'='*60}\n")
 
             return {
                 'status': 'success',
@@ -215,7 +220,7 @@ class EmailProcessor:
             }
 
         except Exception as e:
-            print(f"\n❌ CRITICAL ERROR in process_new_messages: {e}")
+            logger.error(f"\n❌ CRITICAL ERROR in process_new_messages: {e}", exc_info=True)
             return {
                 'status': 'error',
                 'message': str(e)
@@ -249,16 +254,16 @@ class EmailProcessor:
             last_message = messages[-1]
             message_details = self.gmail.extract_message_details(last_message)
 
-            print(f"   From: {message_details['sender_email']}")
-            print(f"   Subject: {message_details['subject'][:60]}...")
+            logger.info(f"   From: {message_details['sender_email']}")
+            logger.info(f"   Subject: {message_details['subject'][:60]}...")
 
             # Skip if from ourselves
             if self.gmail.user_email.lower() in message_details['sender_email'].lower():
-                print(f"   ⊘ Skipping: Self-sent message")
+                logger.info(f"   ⊘ Skipping: Self-sent message")
                 return {'status': 'skipped', 'reason': 'self_sent'}
 
             # === STAGE 1: Fast Filters (Domain/Keyword) ===
-            print(f"   🔍 Stage 1: Fast filters...")
+            logger.info(f"   🔍 Stage 1: Fast filters...")
             if should_ignore_email(
                 message_details['subject'],
                 message_details['body'],
@@ -266,12 +271,12 @@ class EmailProcessor:
                 self.ignore_keywords,
                 self.ignore_domains
             ):
-                print(f"   ⊘ Filtered by domain/keyword")
+                logger.info(f"   ⊘ Filtered by domain/keyword")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'filtered', 'reason': 'domain_keyword'}
 
             # === STAGE 2: NLP Classification ===
-            print(f"   🧠 Stage 2: NLP classification...")
+            logger.info(f"   🧠 Stage 2: NLP classification...")
             is_reply = message_details['subject'].lower().startswith(('re:', 'r:'))
 
             classification = self.classifier.classify_email(
@@ -280,45 +285,50 @@ class EmailProcessor:
                 is_reply=is_reply
             )
 
-            print(f"      Decision: {'REPLY' if classification['should_reply'] else 'NO REPLY'}")
-            print(f"      Reason: {classification['reason']}")
+            logger.info(f"      Decision: {'REPLY' if classification['should_reply'] else 'NO REPLY'}")
+            logger.info(f"      Reason: {classification['reason']}")
             if classification.get('category'):
-                print(f"      Category: {classification['category']}")
+                logger.info(f"      Category: {classification['category']}")
 
             # === STAGE 2b: Force Reply Check ===
             text_to_check = f"{message_details['subject']} {message_details['body']}".lower()
             if any(kw in text_to_check for kw in FORCE_REPLY_KEYWORDS):
-                print(f"   ⚠️  Force reply triggered by keyword")
+                logger.info(f"   ⚠️  Force reply triggered by keyword")
                 classification['should_reply'] = True
                 classification['reason'] = 'force_reply'
 
             if not classification['should_reply']:
-                print(f"   ⊘ Filtered by classifier")
+                logger.info(f"   ⊘ Filtered by classifier")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'filtered', 'reason': classification['reason']}
 
             # === STAGE 3: Build Context ===
-            print(f"   📚 Stage 3: Building context...")
+            logger.info(f"   📚 Stage 3: Building context...")
             conversation_messages = []
             for msg in messages:
                 msg_details = self.gmail.extract_message_details(msg)
                 conversation_messages.append(msg_details)
 
             conversation_history = self.gmail.build_conversation_history(conversation_messages)
-            print(f"      Conversation: {len(conversation_messages)} message(s)")
+            logger.info(f"      Conversation: {len(conversation_messages)} message(s)")
 
-            # Summarize if long
-            if len(conversation_history) > 500:
-                print(f"      Summarizing conversation...")
+            # CRITICAL FIX: Limit conversation history size
+            if len(conversation_history) > config.MAX_CONVERSATION_CHARS:
+                logger.info(f"      Summarizing long conversation ({len(conversation_history)} chars)...")
                 summarized_history = self.gemini.summarize_conversation(conversation_history)
             else:
                 summarized_history = conversation_history
 
-            # Generate dynamic knowledge base
+            # Generate dynamic knowledge base with size limit
             final_knowledge_base = generate_dynamic_knowledge_base(self.knowledge_base)
+            
+            # CRITICAL FIX: Truncate knowledge base if too large
+            if len(final_knowledge_base) > config.MAX_KNOWLEDGE_BASE_CHARS:
+                logger.warning(f"      Knowledge base too large ({len(final_knowledge_base)} chars), truncating...")
+                final_knowledge_base = final_knowledge_base[:config.MAX_KNOWLEDGE_BASE_CHARS] + "\n\n[... knowledge base truncated ...]"
 
             # === STAGE 4: Gemini Response Generation ===
-            print(f"   🤖 Stage 4: Generating AI response...")
+            logger.info(f"   🤖 Stage 4: Generating AI response...")
             ai_response = self.gemini.generate_response(
                 message_details['body'],
                 message_details['subject'],
@@ -331,41 +341,50 @@ class EmailProcessor:
 
             # === STAGE 5: Post-processing and Sending ===
             if ai_response and 'NO_REPLY' not in ai_response.upper():
-                print(f"   ✏️  Stage 5: Post-processing...")
+                logger.info(f"   ✏️  Stage 5: Post-processing...")
                 
                 # Apply text replacements
                 if self.replacements:
                     ai_response = apply_replacements(ai_response, self.replacements)
-                    print(f"      Applied {len(self.replacements)} replacement rules")
+                    logger.info(f"      Applied {len(self.replacements)} replacement rules")
 
                 # Quality checks
-                print(f"   ✓ Stage 6: Validation...")
+                logger.info(f"   ✓ Stage 6: Validation...")
                 if not self._validate_response(ai_response, message_details):
-                    print(f"   ⊘ Response failed validation")
+                    logger.warning(f"   ⊘ Response failed validation")
                     self.gmail.add_label_to_thread(thread['id'], label_name)
                     return {'status': 'filtered', 'reason': 'invalid_response'}
 
-                # Send reply
-                print(f"   📤 Sending reply...")
+                # CRITICAL FIX: DRY-RUN mode check
+                if config.DRY_RUN:
+                    logger.warning(f"   🔴 DRY_RUN MODE: Skipping email send")
+                    logger.info(f"   📝 Would have sent response ({len(ai_response)} chars):")
+                    logger.info(f"      {ai_response[:200]}...")
+                    # Still mark as processed in dry-run
+                    self.gmail.add_label_to_thread(thread['id'], label_name)
+                    return {'status': 'replied', 'dry_run': True}
+                
+                # Send reply (only if not DRY_RUN)
+                logger.info(f"   📤 Sending reply...")
                 self.gmail.send_reply(message_details, ai_response)
-                print(f"   ✓ Reply sent successfully")
+                logger.info(f"   ✓ Reply sent successfully")
 
                 # Mark as processed
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'replied'}
 
             elif ai_response and 'NO_REPLY' in ai_response.upper():
-                print(f"   ⊘ Gemini decided NO_REPLY")
+                logger.info(f"   ⊘ Gemini decided NO_REPLY")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'filtered', 'reason': 'gemini_no_reply'}
 
             else:
-                print(f"   ❌ Empty response from Gemini")
+                logger.error(f"   ❌ Empty response from Gemini")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'error', 'reason': 'empty_response'}
 
         except Exception as e:
-            print(f"   ❌ Error in thread processing: {e}")
+            logger.error(f"   ❌ Error in thread processing: {e}", exc_info=True)
             raise
 
     def _validate_response(self, response: str, message_details: Dict) -> bool:
@@ -381,12 +400,12 @@ class EmailProcessor:
         """
         # Check minimum length
         if len(response.strip()) < 50:
-            print(f"      ✗ Response too short ({len(response)} chars)")
+            logger.warning(f"      ✗ Response too short ({len(response)} chars)")
             return False
 
         # Check maximum length
         if len(response.strip()) > 3000:
-            print(f"      ⚠️  Response very long ({len(response)} chars)")
+            logger.warning(f"      ⚠️  Response very long ({len(response)} chars)")
             # Non blocchiamo, ma avvisiamo
 
         # Check for greeting (warning only)
@@ -396,7 +415,7 @@ class EmailProcessor:
         has_greeting = any(greet in response.lower()[:150] for greet in required_greetings)
 
         if not has_greeting:
-            print(f"      ⚠️  Response missing greeting (non-blocking)")
+            logger.warning(f"      ⚠️  Response missing greeting (non-blocking)")
 
         # Check for closing (warning only)
         closing_phrases = ['cordiali saluti', 'distinti saluti', 'kind regards', 
@@ -404,14 +423,14 @@ class EmailProcessor:
         has_closing = any(closing in response.lower() for closing in closing_phrases)
         
         if not has_closing:
-            print(f"      ⚠️  Response missing closing (non-blocking)")
+            logger.warning(f"      ⚠️  Response missing closing (non-blocking)")
 
         # Check for "NO_REPLY" leaking through
         if 'NO_REPLY' in response.upper() and len(response) > 20:
-            print(f"      ✗ Response contains NO_REPLY instruction (should be filtered)")
+            logger.warning(f"      ✗ Response contains NO_REPLY instruction (should be filtered)")
             return False
 
-        print(f"      ✓ Validation passed ({len(response)} chars)")
+        logger.info(f"      ✓ Validation passed ({len(response)} chars)")
         return True
     
     def get_statistics(self) -> Dict:
@@ -432,7 +451,7 @@ class EmailProcessor:
         """
         Reload resources from Google Sheets (clear cache and reload)
         """
-        print("\n🔄 Reloading resources from Google Sheets...")
+        logger.info("\n🔄 Reloading resources from Google Sheets...")
         try:
             # Clear sheets cache
             self.sheets.clear_cache()
@@ -440,7 +459,7 @@ class EmailProcessor:
             # Reload resources
             self._load_resources()
             
-            print("✓ Resources reloaded successfully")
+            logger.info("✓ Resources reloaded successfully")
         except Exception as e:
-            print(f"❌ Error reloading resources: {e}")
+            logger.error(f"❌ Error reloading resources: {e}")
             raise
