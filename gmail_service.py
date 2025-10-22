@@ -179,11 +179,11 @@ class GmailManager:
         """
         def _b64url_decode(data: str) -> bytes:
             if not data:
-                return b''
+                return b""
             # Add missing padding for urlsafe base64
             padding_needed = (-len(data)) % 4
             if padding_needed:
-                data += '=' * padding_needed
+                data += "=" * padding_needed
             return base64.urlsafe_b64decode(data)
 
         def _html_to_text(html: str) -> str:
@@ -196,12 +196,14 @@ class GmailManager:
             except Exception:
                 return html
 
-        body_text = ''
+        # Prefer text/plain; remember a text/html fallback if needed
+        plain_text: Optional[str] = None
+        html_fallback: Optional[str] = None
 
-        # Recursively walk parts to find best candidate: prefer text/plain, fallback to text/html
-        if 'parts' in payload:
+        # Recursively walk parts to find best candidate
+        if payload.get('parts'):
             for part in payload['parts']:
-                mime = part.get('mimeType', '')
+                mime = part.get('mimeType', '') or ''
                 if mime.startswith('multipart/'):
                     nested = self._extract_body(part)
                     if nested:
@@ -209,23 +211,23 @@ class GmailManager:
                 elif mime == 'text/plain':
                     data = part.get('body', {}).get('data', '')
                     try:
-                        body_text = _b64url_decode(data).decode('utf-8', errors='ignore')
-                        return body_text
+                        plain_text = _b64url_decode(data).decode('utf-8', errors='ignore')
+                        if plain_text:
+                            return plain_text
                     except Exception:
-                        pass
+                        continue
                 elif mime == 'text/html':
                     data = part.get('body', {}).get('data', '')
                     try:
                         html = _b64url_decode(data).decode('utf-8', errors='ignore')
-                        body_text = _html_to_text(html)
-                        # Keep looking in case a text/plain appears later, but remember this fallback
+                        html_fallback = _html_to_text(html)
                     except Exception:
-                        pass
-            return body_text
+                        continue
+            return plain_text or html_fallback or ''
         else:
             data = payload.get('body', {}).get('data', '')
-            mime = payload.get('mimeType', '')
             if data:
+                mime = payload.get('mimeType', '') or ''
                 try:
                     decoded = _b64url_decode(data).decode('utf-8', errors='ignore')
                     if mime == 'text/html':
@@ -233,7 +235,7 @@ class GmailManager:
                     return decoded
                 except Exception:
                     return ''
-        return ''
+            return ''
     
     def _extract_sender_name(self, from_field: str) -> str:
         """
