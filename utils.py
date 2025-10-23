@@ -6,7 +6,8 @@ Enhanced with intelligent temporal context generation
 from datetime import datetime, timedelta
 import re
 import logging
-from typing import Optional, List, Dict, Tuple
+import locale
+from typing import Optional, List, Dict, Tuple  # CRITICAL FIX: Added Tuple
 import config
 from zoneinfo import ZoneInfo
 
@@ -14,6 +15,35 @@ logger = logging.getLogger(__name__)
 
 # Definisci il fuso orario italiano
 ITALIAN_TZ = ZoneInfo("Europe/Rome")
+
+
+# CRITICAL FIX: Robust locale setting with fallbacks
+def _set_italian_locale() -> bool:
+    """
+    Set Italian locale for date formatting with multiple fallbacks
+    
+    Returns:
+        True if successfully set, False otherwise
+    """
+    locales_to_try = [
+        'it_IT.UTF-8',      # Linux/Mac standard
+        'it_IT.utf8',       # Linux alternative
+        'it_IT',            # Generic Italian
+        'Italian_Italy.1252',  # Windows
+        'ita_ita',          # Windows alternative
+    ]
+    
+    for loc in locales_to_try:
+        try:
+            locale.setlocale(locale.LC_TIME, loc)
+            logger.debug(f"✓ Set locale to {loc}")
+            return True
+        except locale.Error:
+            continue
+    
+    logger.warning("⚠️  Could not set Italian locale - dates will be in system default language")
+    return False
+
 
 def is_in_suspension_time() -> bool:
     """
@@ -159,15 +189,17 @@ def get_holy_family_sunday(year: int) -> Optional[datetime.date]:
 
 def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]]:
     """
-    Extract dates from knowledge base text
+    Extract dates from knowledge base text (deduplicated)
+    
+    CRITICAL FIX: Now deduplicates dates to avoid duplicate annotations
     
     Args:
         kb_text: Knowledge base text
         
     Returns:
-        List of (date, context_snippet) tuples
+        List of (date, context_snippet) tuples, deduplicated and sorted
     """
-    dates = []
+    dates_dict = {}  # CRITICAL FIX: Use dict to deduplicate by date
     now = datetime.now(ITALIAN_TZ)
     
     # Pattern per date italiane comuni
@@ -205,11 +237,17 @@ def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]
                 end = min(len(kb_text), match.end() + 50)
                 context = kb_text[start:end].strip()
                 
-                dates.append((date, context))
-            except (ValueError, KeyError):
+                # CRITICAL FIX: Store by date key to deduplicate
+                date_key = date.date()
+                if date_key not in dates_dict:
+                    dates_dict[date_key] = (date, context)
+                    
+            except (ValueError, KeyError) as e:
+                logger.debug(f"Could not parse date from match: {match.group(0)} - {e}")
                 continue
     
-    return dates
+    # Return as sorted list
+    return sorted(dates_dict.values(), key=lambda x: x[0])
 
 def generate_temporal_awareness_context(now: datetime = None) -> str:
     """
@@ -238,13 +276,10 @@ def generate_temporal_awareness_context(now: datetime = None) -> str:
     two_weeks_ago = now - timedelta(days=14)
     two_weeks_ahead = now + timedelta(days=14)
     
-    # Format dates
-    import locale
-    try:
-        locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
-    except:
-        pass
+    # CRITICAL FIX: Robust locale setting
+    _set_italian_locale()
     
+    # Format dates
     date_format = "%A %d %B %Y"
     today_str = now.strftime(date_format)
     yesterday_str = yesterday.strftime("%d %B")
@@ -354,7 +389,7 @@ def generate_dynamic_knowledge_base(knowledge_base_string: str) -> str:
         date_context = "\n\n📋 DATE RILEVATE NELLA KNOWLEDGE BASE:\n"
         date_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
         
-        for date, context in sorted(dates_found, key=lambda x: x[0]):
+        for date, context in dates_found:  # Already sorted and deduplicated
             days_diff = (date.date() - now.date()).days
             
             if days_diff < 0:
