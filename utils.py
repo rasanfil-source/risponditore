@@ -1,23 +1,60 @@
 """
 Utility functions for date calculations, filters, and text processing
-Enhanced with intelligent temporal context generation
+Enhanced with intelligent temporal context generation and robust error handling
 """
 
 from datetime import datetime, timedelta
 import re
 import logging
 import locale
-from typing import Optional, List, Dict, Tuple  # CRITICAL FIX: Added Tuple
+from typing import Optional, List, Dict, Tuple, Union
 import config
-from zoneinfo import ZoneInfo
 
 logger = logging.getLogger(__name__)
 
-# Definisci il fuso orario italiano
-ITALIAN_TZ = ZoneInfo("Europe/Rome")
+# ============================================================================
+# TIMEZONE SETUP WITH ROBUST FALLBACK
+# ============================================================================
+
+def _get_italian_timezone() -> Union['ZoneInfo', 'pytz.timezone']:
+    """
+    Get Italian timezone with robust fallback
+    
+    Tries:
+    1. zoneinfo.ZoneInfo (Python 3.9+, preferred)
+    2. pytz.timezone (fallback)
+    3. UTC as last resort (logs error)
+    
+    Returns:
+        Timezone object (ZoneInfo or pytz or UTC)
+    """
+    try:
+        from zoneinfo import ZoneInfo
+        tz = ZoneInfo("Europe/Rome")
+        logger.debug("✓ Using zoneinfo for Italian timezone")
+        return tz
+    except Exception as e:
+        logger.warning(f"⚠️  zoneinfo failed ({e}), trying pytz")
+        
+        try:
+            import pytz
+            tz = pytz.timezone("Europe/Rome")
+            logger.warning("⚠️  Using pytz fallback for Italian timezone")
+            return tz
+        except Exception as e2:
+            logger.error(f"❌ Both zoneinfo and pytz failed: {e2}")
+            logger.error("   Defaulting to UTC - DATES WILL BE WRONG!")
+            from datetime import timezone
+            return timezone.utc
+
+# Initialize at module level
+ITALIAN_TZ = _get_italian_timezone()
 
 
-# CRITICAL FIX: Robust locale setting with fallbacks
+# ============================================================================
+# LOCALE SETUP WITH MULTIPLE FALLBACKS
+# ============================================================================
+
 def _set_italian_locale() -> bool:
     """
     Set Italian locale for date formatting with multiple fallbacks
@@ -26,11 +63,12 @@ def _set_italian_locale() -> bool:
         True if successfully set, False otherwise
     """
     locales_to_try = [
-        'it_IT.UTF-8',      # Linux/Mac standard
-        'it_IT.utf8',       # Linux alternative
-        'it_IT',            # Generic Italian
-        'Italian_Italy.1252',  # Windows
-        'ita_ita',          # Windows alternative
+        'it_IT.UTF-8',          # Linux/Mac standard
+        'it_IT.utf8',           # Linux alternative
+        'it_IT',                # Generic Italian
+        'Italian_Italy.1252',   # Windows
+        'ita_ita',              # Windows alternative
+        'it',                   # Minimal Italian
     ]
     
     for loc in locales_to_try:
@@ -45,32 +83,51 @@ def _set_italian_locale() -> bool:
     return False
 
 
+# ============================================================================
+# SUSPENSION TIME AND SPECIAL PERIODS
+# ============================================================================
+
 def is_in_suspension_time() -> bool:
     """
     Check if current time is within suspension hours
+    
+    Returns:
+        True if system should be suspended
     """
     now = datetime.now(ITALIAN_TZ)
     month = now.month
     day = now.day
     
+    # Special periods override suspension
     if is_in_special_period(month, day):
         return False
     
     weekday = now.weekday()
     hour = now.hour
     
+    # Check if current hour is in suspension hours for this weekday
     if weekday in config.SUSPENSION_HOURS:
         for start_hour, end_hour in config.SUSPENSION_HOURS[weekday]:
             if start_hour <= hour < end_hour:
                 return True
+    
     return False
+
 
 def is_in_special_period(month: int, day: int) -> bool:
     """
     Check if date is in a special period (holidays, vacations)
+    
+    Args:
+        month: Month (1-12)
+        day: Day of month
+        
+    Returns:
+        True if date is in special period
     """
+    # Check special periods (can span year boundaries)
     for (start_month, start_day), (end_month, end_day) in config.SPECIAL_PERIODS:
-        if start_month > end_month:  # Periodo che attraversa fine anno
+        if start_month > end_month:  # Period crosses year boundary
             if month >= start_month and day >= start_day:
                 return True
             if month <= end_month and day <= end_day:
@@ -85,15 +142,23 @@ def is_in_special_period(month: int, day: int) -> bool:
             elif month == end_month and day <= end_day:
                 return True
     
+    # Check single-day holidays
     for holiday_month, holiday_day in config.HOLIDAYS:
         if month == holiday_month and day == holiday_day:
             return True
     
     return False
 
+
 def get_current_season(date_obj: datetime = None) -> str:
     """
     Determine current season (summer/winter)
+    
+    Args:
+        date_obj: Date to check (default: now)
+        
+    Returns:
+        'estivo' or 'invernale'
     """
     if date_obj is None:
         date_obj = datetime.now(ITALIAN_TZ)
@@ -101,17 +166,30 @@ def get_current_season(date_obj: datetime = None) -> str:
     month = date_obj.month
     day = date_obj.day
     
+    # Check if in summer period
     if month == config.SUMMER_START[0] and day >= config.SUMMER_START[1]:
         return 'estivo'
     elif config.SUMMER_START[0] < month < config.SUMMER_END[0]:
         return 'estivo'
     elif month == config.SUMMER_END[0] and day <= config.SUMMER_END[1]:
         return 'estivo'
+    
     return 'invernale'
+
+
+# ============================================================================
+# SPECIAL DAY GREETINGS
+# ============================================================================
 
 def get_special_day_greeting(date_obj: datetime = None) -> Optional[str]:
     """
     Get special day greeting if applicable
+    
+    Args:
+        date_obj: Date to check (default: now)
+        
+    Returns:
+        Greeting string or None
     """
     if date_obj is None:
         date_obj = datetime.now(ITALIAN_TZ)
@@ -121,6 +199,7 @@ def get_special_day_greeting(date_obj: datetime = None) -> Optional[str]:
     day = date_obj.day
     today = date_obj.date()
     
+    # Fixed date holidays
     greetings = {
         (1, 1): 'Buon Capodanno!',
         (1, 6): 'Buona Epifania!',
@@ -133,29 +212,44 @@ def get_special_day_greeting(date_obj: datetime = None) -> Optional[str]:
     if (month, day) in greetings:
         return greetings[(month, day)]
     
-    # Pasqua e feste mobili
-    easter = get_western_easter_date(year)
-    easter_end = easter + timedelta(days=7)
-    if easter <= today <= easter_end:
-        return 'Buona Pasqua!'
+    # Mobile feasts (Easter-based)
+    try:
+        easter = get_western_easter_date(year)
+        easter_end = easter + timedelta(days=7)
+        
+        if easter <= today <= easter_end:
+            return 'Buona Pasqua!'
+        
+        pentecost = easter + timedelta(days=49)
+        if today == pentecost:
+            return 'Buona Pentecoste!'
+        
+        corpus_domini = easter + timedelta(days=63)
+        if today == corpus_domini:
+            return 'Auguri per oggi!'
+    except Exception as e:
+        logger.warning(f"⚠️  Error calculating Easter-based holidays: {e}")
     
-    pentecost = easter + timedelta(days=49)
-    if today == pentecost:
-        return 'Buona Pentecoste!'
-    
-    corpus_domini = easter + timedelta(days=63)
-    if today == corpus_domini:
-        return 'Auguri per oggi!'
-    
-    holy_family = get_holy_family_sunday(year)
-    if holy_family and today == holy_family:
-        return 'Buona Festa della Sacra Famiglia.'
+    # Holy Family Sunday
+    try:
+        holy_family = get_holy_family_sunday(year)
+        if holy_family and today == holy_family:
+            return 'Buona Festa della Sacra Famiglia.'
+    except Exception as e:
+        logger.warning(f"⚠️  Error calculating Holy Family Sunday: {e}")
     
     return None
+
 
 def get_western_easter_date(year: int) -> datetime.date:
     """
     Calculate Western Easter date using Computus algorithm
+    
+    Args:
+        year: Year to calculate Easter for
+        
+    Returns:
+        Easter date
     """
     a = year % 19
     b = year // 100
@@ -174,24 +268,37 @@ def get_western_easter_date(year: int) -> datetime.date:
     
     return datetime(year, month, day).date()
 
+
 def get_holy_family_sunday(year: int) -> Optional[datetime.date]:
     """
     Get Holy Family Sunday (Sunday between Dec 26-31)
+    
+    Args:
+        year: Year to calculate for
+        
+    Returns:
+        Date of Holy Family Sunday or None
     """
     for day in range(26, 32):
         try:
             date = datetime(year, 12, day)
-            if date.weekday() == 6:  # Domenica
+            if date.weekday() == 6:  # Sunday
                 return date.date()
         except ValueError:
             continue
+    
     return None
+
+
+# ============================================================================
+# DATE EXTRACTION FROM KNOWLEDGE BASE (FIXED)
+# ============================================================================
 
 def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]]:
     """
-    Extract dates from knowledge base text (deduplicated)
+    Extract dates from knowledge base text (deduplicated and validated)
     
-    CRITICAL FIX: Now deduplicates dates to avoid duplicate annotations
+    🔧 FIX: Added validation to prevent invalid dates (e.g., 31 Feb)
     
     Args:
         kb_text: Knowledge base text
@@ -199,10 +306,10 @@ def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]
     Returns:
         List of (date, context_snippet) tuples, deduplicated and sorted
     """
-    dates_dict = {}  # CRITICAL FIX: Use dict to deduplicate by date
+    dates_dict = {}  # Use dict to deduplicate by date
     now = datetime.now(ITALIAN_TZ)
     
-    # Pattern per date italiane comuni
+    # Patterns for Italian dates
     patterns = [
         # "4 ottobre", "19 ottobre 2025"
         r'(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)(?:\s+(\d{4}))?',
@@ -219,6 +326,7 @@ def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]
     for pattern in patterns:
         for match in re.finditer(pattern, kb_text, re.IGNORECASE):
             try:
+                # Parse date components
                 if len(match.groups()) == 3:  # "4 ottobre 2025" or "4 ottobre"
                     day = int(match.group(1))
                     month = month_map[match.group(2).lower()]
@@ -230,24 +338,37 @@ def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]
                 else:
                     continue
                 
-                date = datetime(year, month, day, tzinfo=ITALIAN_TZ)
+                # 🔧 FIX: Validate date before creating datetime
+                try:
+                    date = datetime(year, month, day, tzinfo=ITALIAN_TZ)
+                except ValueError as e:
+                    logger.debug(f"Invalid date skipped: {year}-{month}-{day} - {e}")
+                    continue
                 
                 # Extract surrounding context (50 chars before and after)
                 start = max(0, match.start() - 50)
                 end = min(len(kb_text), match.end() + 50)
                 context = kb_text[start:end].strip()
                 
-                # CRITICAL FIX: Store by date key to deduplicate
+                # Store by date key to deduplicate
                 date_key = date.date()
                 if date_key not in dates_dict:
                     dates_dict[date_key] = (date, context)
                     
-            except (ValueError, KeyError) as e:
-                logger.debug(f"Could not parse date from match: {match.group(0)} - {e}")
+            except KeyError as e:
+                logger.debug(f"Could not parse month from match: {match.group(0)} - {e}")
+                continue
+            except Exception as e:
+                logger.warning(f"⚠️  Unexpected error parsing date: {match.group(0)} - {e}")
                 continue
     
     # Return as sorted list
     return sorted(dates_dict.values(), key=lambda x: x[0])
+
+
+# ============================================================================
+# TEMPORAL AWARENESS CONTEXT GENERATION
+# ============================================================================
 
 def generate_temporal_awareness_context(now: datetime = None) -> str:
     """
@@ -276,7 +397,7 @@ def generate_temporal_awareness_context(now: datetime = None) -> str:
     two_weeks_ago = now - timedelta(days=14)
     two_weeks_ahead = now + timedelta(days=14)
     
-    # CRITICAL FIX: Robust locale setting
+    # Set Italian locale for date formatting
     _set_italian_locale()
     
     # Format dates
@@ -367,6 +488,7 @@ def generate_temporal_awareness_context(now: datetime = None) -> str:
     
     return context
 
+
 def generate_dynamic_knowledge_base(knowledge_base_string: str) -> str:
     """
     Add dynamic date information to knowledge base with temporal awareness
@@ -411,6 +533,11 @@ def generate_dynamic_knowledge_base(knowledge_base_string: str) -> str:
     # Combine temporal context with KB
     return temporal_context + "\n\n" + knowledge_base_string
 
+
+# ============================================================================
+# EMAIL FILTERING AND TEXT PROCESSING
+# ============================================================================
+
 def should_ignore_email(subject: str, content: str, sender_email: str,
                         ignore_keywords: List[str], ignore_senders: List[str]) -> bool:
     """
@@ -428,17 +555,20 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
     """
     text = (subject + ' ' + content).lower()
     
+    # Check keywords
     for keyword in ignore_keywords:
         if keyword.lower() in text:
             logger.info(f"Email ignored due to keyword: '{keyword}'")
             return True
     
+    # Check senders
     for sender in ignore_senders:
         if sender.lower() in sender_email.lower():
             logger.info(f"Email ignored due to sender: '{sender}'")
             return True
     
     return False
+
 
 def apply_replacements(text: str, replacements: Dict[str, str]) -> str:
     """
@@ -451,10 +581,19 @@ def apply_replacements(text: str, replacements: Dict[str, str]) -> str:
     Returns:
         Text with replacements applied
     """
+    if not replacements:
+        return text
+    
     for bad_expr, good_expr in replacements.items():
-        escaped_bad = re.escape(bad_expr)
-        text = re.sub(escaped_bad, good_expr, text, flags=re.IGNORECASE)
+        try:
+            escaped_bad = re.escape(bad_expr)
+            text = re.sub(escaped_bad, good_expr, text, flags=re.IGNORECASE)
+        except Exception as e:
+            logger.warning(f"⚠️  Error applying replacement '{bad_expr}': {e}")
+            continue
+    
     return text
+
 
 def extract_thread_messages(thread: Dict) -> List[Dict]:
     """
@@ -467,11 +606,13 @@ def extract_thread_messages(thread: Dict) -> List[Dict]:
         List of message dictionaries
     """
     messages = []
+    
     for message in thread.get('messages', []):
         msg_dict = {
             'id': message['id'],
             'threadId': message['threadId']
         }
+        
         headers = message['payload'].get('headers', [])
         for header in headers:
             name = header['name'].lower()
@@ -481,5 +622,7 @@ def extract_thread_messages(thread: Dict) -> List[Dict]:
                 msg_dict['subject'] = header['value']
             elif name == 'date':
                 msg_dict['date'] = header['value']
+        
         messages.append(msg_dict)
+    
     return messages
