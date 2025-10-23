@@ -26,5 +26,4 @@ beautifulsoup4==4.12.3
 html2text==2024.2.26
 
 # 🔧 NEW: Fallback dependencies
-pytz>=2024.1  # Timezone fallback (if not already present)
 

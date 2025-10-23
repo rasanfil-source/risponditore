@@ -397,7 +397,13 @@ Conversazione:
             if response.status_code == 200:
                 result = response.json()
                 if result.get("candidates") and result["candidates"][0].get("content"):
-                    summary = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+                    content_obj = result["candidates"][0]["content"]
+                    parts = content_obj.get("parts") if isinstance(content_obj, dict) else None
+                    if parts and isinstance(parts, list) and parts[0].get("text"):
+                        summary = parts[0]["text"].strip()
+                    else:
+                        logger.warning("⚠️  Summary response missing text part, using full history")
+                        return conversation_history
 
                     # Validate summary
                     if len(summary.split()) < 15 or "non ho abbastanza informazioni" in summary.lower():
