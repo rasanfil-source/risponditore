@@ -73,13 +73,16 @@ class GmailManager:
         self.service = get_gmail_service(user_email)
         self.user_email = user_email or config.IMPERSONATE_EMAIL
         
-        # CRITICAL FIX: Add label cache to avoid repeated API calls
+        # Label cache to avoid repeated API calls
         self._label_cache: Dict[str, str] = {}
         logger.info("✓ Gmail label cache initialized")
         
     def get_or_create_label(self, label_name: str) -> str:
         """
-        Get or create a Gmail label with caching
+        Get or create a Gmail label with caching and race condition handling
+        
+        CRITICAL FIX: Now handles race conditions where multiple instances
+        might try to create the same label simultaneously
         
         Args:
             label_name: Name of the label
@@ -87,13 +90,14 @@ class GmailManager:
         Returns:
             Label ID
         """
-        # CRITICAL FIX: Check cache first
+        # Check cache first
         if label_name in self._label_cache:
             logger.debug(f"📦 Label '{label_name}' found in cache: {self._label_cache[label_name]}")
             return self._label_cache[label_name]
         
         try:
-            # List all labels
+            # CRITICAL FIX: Always fetch fresh labels to avoid race conditions
+            # (small performance hit but prevents concurrent creation errors)
             results = self.service.users().labels().list(userId='me').execute()
             labels = results.get('labels', [])
             
@@ -105,25 +109,47 @@ class GmailManager:
                     logger.info(f"✓ Label '{label_name}' found: {label['id']}")
                     return label['id']
             
-            # Create new label
-            label_object = {
-                'name': label_name,
-                'labelListVisibility': 'labelShow',
-                'messageListVisibility': 'show'
-            }
-            
-            created_label = self.service.users().labels().create(
-                userId='me',
-                body=label_object
-            ).execute()
-            
-            # Cache the new label
-            self._label_cache[label_name] = created_label['id']
-            logger.info(f"Created new label: {label_name} ({created_label['id']})")
-            return created_label['id']
+            # Label doesn't exist, try to create it
+            try:
+                label_object = {
+                    'name': label_name,
+                    'labelListVisibility': 'labelShow',
+                    'messageListVisibility': 'show'
+                }
+                
+                created_label = self.service.users().labels().create(
+                    userId='me',
+                    body=label_object
+                ).execute()
+                
+                # Cache the new label
+                self._label_cache[label_name] = created_label['id']
+                logger.info(f"Created new label: {label_name} ({created_label['id']})")
+                return created_label['id']
+                
+            except Exception as create_error:
+                # CRITICAL FIX: Handle race condition - another process created it
+                error_msg = str(create_error).lower()
+                if 'already exists' in error_msg or 'duplicate' in error_msg:
+                    logger.warning(f"⚠️  Label '{label_name}' created by another process, refetching...")
+                    
+                    # Refetch labels and find the newly created one
+                    results = self.service.users().labels().list(userId='me').execute()
+                    for label in results.get('labels', []):
+                        if label['name'] == label_name:
+                            self._label_cache[label_name] = label['id']
+                            logger.info(f"✓ Found label created by another process: {label['id']}")
+                            return label['id']
+                    
+                    # If still not found, something is wrong
+                    logger.error(f"❌ Label '{label_name}' should exist but not found after refetch")
+                    raise ValueError(f"Label '{label_name}' inconsistency after concurrent creation")
+                else:
+                    # Other error, re-raise
+                    raise
             
         except Exception as e:
-            logger.error(f"Error managing label: {e}")
+            logger.error(f"Error managing label '{label_name}': {e}")
             raise
     
     def clear_label_cache(self):
@@ -439,9 +465,9 @@ class GmailManager:
         reply_html = reply_text.replace('\n', '<br>')
         original_html = original_body.replace('\n', '<br>')
         
-        # MEDIUM PRIORITY FIX: Reduced font-size 20px for better compatibility
+        # Medium priority fix: Reduced font-size from 20px to 14px
         html = f'''
-        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 20px; color: #351c75;">
+        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #351c75;">
             {reply_html}
             <br><br>
             <hr>
