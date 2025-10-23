@@ -27,7 +27,7 @@ MAX_EMAILS_PER_RUN = int(os.environ.get('MAX_EMAILS_PER_RUN', '10'))
 
 # ============ Gemini Model Configuration ============
 MODEL_NAME = 'gemini-2.0-flash'
-TEMPERATURE = 0.6
+TEMPERATURE = 0.5
 MAX_OUTPUT_TOKENS = 800
 
 # ============ Cache Configuration ============
@@ -44,8 +44,8 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # Prompt size limits (characters)
-MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "15000"))
-MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "2000"))
+MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "35000"))
+MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "4000"))
 
 # ============ NLP Classification Thresholds ============
 SIMPLE_ACK_THRESHOLD = 0.9  # Soglia per classificare come semplice ringraziamento
