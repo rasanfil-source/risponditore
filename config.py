@@ -48,8 +48,8 @@ MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "35000"))
 MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "4000"))
 
 # ============ NLP Classification Thresholds ============
-SIMPLE_ACK_THRESHOLD = 0.9  # Soglia per classificare come semplice ringraziamento
-NEEDS_REPLY_THRESHOLD = 0.55  # Soglia per necessità di risposta
+SIMPLE_ACK_THRESHOLD = 0.75  # Soglia per classificare come semplice ringraziamento
+NEEDS_REPLY_THRESHOLD = 0.50  # Soglia per necessità di risposta
 
 # ============ Seasonal Periods ============
 SUMMER_START = (6, 29)  # June 29
