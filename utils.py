@@ -1,11 +1,12 @@
 """
 Utility functions for date calculations, filters, and text processing
+Enhanced with intelligent temporal context generation
 """
 
 from datetime import datetime, timedelta
 import re
 import logging
-from typing import Optional, List, Dict
+from typing import Optional, List, Dict, Tuple
 import config
 from zoneinfo import ZoneInfo
 
@@ -156,6 +157,225 @@ def get_holy_family_sunday(year: int) -> Optional[datetime.date]:
             continue
     return None
 
+def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]]:
+    """
+    Extract dates from knowledge base text
+    
+    Args:
+        kb_text: Knowledge base text
+        
+    Returns:
+        List of (date, context_snippet) tuples
+    """
+    dates = []
+    now = datetime.now(ITALIAN_TZ)
+    
+    # Pattern per date italiane comuni
+    patterns = [
+        # "4 ottobre", "19 ottobre 2025"
+        r'(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)(?:\s+(\d{4}))?',
+        # "ottobre 2025"
+        r'(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})',
+    ]
+    
+    month_map = {
+        'gennaio': 1, 'febbraio': 2, 'marzo': 3, 'aprile': 4,
+        'maggio': 5, 'giugno': 6, 'luglio': 7, 'agosto': 8,
+        'settembre': 9, 'ottobre': 10, 'novembre': 11, 'dicembre': 12
+    }
+    
+    for pattern in patterns:
+        for match in re.finditer(pattern, kb_text, re.IGNORECASE):
+            try:
+                if len(match.groups()) == 3:  # "4 ottobre 2025" or "4 ottobre"
+                    day = int(match.group(1))
+                    month = month_map[match.group(2).lower()]
+                    year = int(match.group(3)) if match.group(3) else now.year
+                elif len(match.groups()) == 2:  # "ottobre 2025"
+                    day = 1
+                    month = month_map[match.group(1).lower()]
+                    year = int(match.group(2))
+                else:
+                    continue
+                
+                date = datetime(year, month, day, tzinfo=ITALIAN_TZ)
+                
+                # Extract surrounding context (50 chars before and after)
+                start = max(0, match.start() - 50)
+                end = min(len(kb_text), match.end() + 50)
+                context = kb_text[start:end].strip()
+                
+                dates.append((date, context))
+            except (ValueError, KeyError):
+                continue
+    
+    return dates
+
+def generate_temporal_awareness_context(now: datetime = None) -> str:
+    """
+    Generate rich temporal awareness context for AI
+    
+    This provides the AI with:
+    - Current date with clear emphasis
+    - Recent past events (what just happened)
+    - Near future events (what's coming)
+    - Examples of how to refer to past vs future events
+    
+    Args:
+        now: Current datetime (default: now in Italian timezone)
+        
+    Returns:
+        Rich temporal context string
+    """
+    if now is None:
+        now = datetime.now(ITALIAN_TZ)
+    
+    # Calculate key dates
+    yesterday = now - timedelta(days=1)
+    tomorrow = now + timedelta(days=1)
+    week_ago = now - timedelta(days=7)
+    week_ahead = now + timedelta(days=7)
+    two_weeks_ago = now - timedelta(days=14)
+    two_weeks_ahead = now + timedelta(days=14)
+    
+    # Format dates
+    import locale
+    try:
+        locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
+    except:
+        pass
+    
+    date_format = "%A %d %B %Y"
+    today_str = now.strftime(date_format)
+    yesterday_str = yesterday.strftime("%d %B")
+    tomorrow_str = tomorrow.strftime("%d %B")
+    week_ago_str = week_ago.strftime("%d %B")
+    week_ahead_str = week_ahead.strftime("%d %B")
+    
+    context = f"""
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                    🕐 CONTESTO TEMPORALE INTELLIGENTE                         ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+📅 OGGI È: {today_str}
+   ↑ Questa è la data di riferimento ASSOLUTA per tutte le risposte
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏰ LINEA TEMPORALE:
+
+   📍 Due settimane fa: {two_weeks_ago.strftime("%d %B")}
+   📍 Una settimana fa: {week_ago_str}
+   📍 Ieri: {yesterday_str}
+   
+   🔴 >>> OGGI: {now.strftime("%d %B %Y")} <<<  [PUNTO DI RIFERIMENTO]
+   
+   📍 Domani: {tomorrow_str}
+   📍 Tra una settimana: {week_ahead_str}
+   📍 Tra due settimane: {two_weeks_ahead.strftime("%d %B")}
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🧠 ISTRUZIONI CRITICHE SUL TEMPO:
+
+1. ⚠️  REGOLA FONDAMENTALE:
+   Se una data nella knowledge base è PRECEDENTE a oggi ({now.strftime("%d %B %Y")}):
+   → USA IL PASSATO: "è iniziato/a", "è cominciato/a", "ha avuto inizio"
+   → NON dire MAI "inizierà", "comincerà", "avrà inizio"
+
+2. 📊 ESEMPI PRATICI:
+
+   SCENARIO A - Evento del 19 ottobre, oggi è {now.strftime("%d %B")}:
+   ❌ SBAGLIATO: "La catechesi inizierà il 19 ottobre"
+   ✅ CORRETTO: "La catechesi è già iniziata il 19 ottobre"
+   ✅ CORRETTO: "La catechesi è cominciata sabato 19 ottobre"
+   
+   SCENARIO B - Evento del 4 ottobre, oggi è {now.strftime("%d %B")}:
+   ❌ SBAGLIATO: "Il corso inizierà il 4 ottobre 2025"
+   ✅ CORRETTO: "Il corso è già iniziato il 4 ottobre"
+   ✅ CORRETTO: "Il corso prematrimoniale è iniziato venerdì 4 ottobre"
+   
+   SCENARIO C - Evento del 15 novembre, oggi è {now.strftime("%d %B")}:
+   ✅ CORRETTO: "Il prossimo incontro si terrà il 15 novembre"
+   ✅ CORRETTO: "L'evento è previsto per venerdì 15 novembre"
+
+3. 🎯 LINEE GUIDA INTELLIGENTI:
+
+   Per eventi passati (prima di oggi):
+   • Usa sempre il passato prossimo: "è iniziato", "si è tenuto", "ha avuto luogo"
+   • Aggiungi "già" per enfatizzare: "è già iniziato"
+   • Se molto recente (< 7 giorni): "è iniziato di recente", "è appena cominciato"
+   • Se chiesto info su partecipazione: "Puoi ancora unirti" o "Per informazioni sui prossimi incontri..."
+   
+   Per eventi futuri (dopo oggi):
+   • Usa il futuro semplice: "inizierà", "si terrà", "avrà luogo"
+   • Usa "prossimo/a" per chiarezza: "il prossimo incontro"
+   
+   Per eventi in corso (es. corso già iniziato ma non finito):
+   • "È in corso da...", "Procede regolarmente...", "È possibile ancora iscriversi..."
+
+4. 🔍 VERIFICA PRIMA DI RISPONDERE:
+   a) Identifica TUTTE le date menzionate nella tua risposta
+   b) Per OGNI data, chiediti: "È prima o dopo {now.strftime("%d %B %Y")}?"
+   c) Usa il tempo verbale appropriato
+   d) Se hai dubbi, preferisci: "già iniziato" piuttosto che "inizierà"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 REMINDER: La data di OGGI ({today_str}) è il tuo PUNTO DI RIFERIMENTO.
+   Tutti gli eventi vengono valutati rispetto a questa data.
+   NON assumere mai che un evento sia nel futuro solo perché è menzionato nella KB.
+   CONTROLLA SEMPRE la data rispetto a OGGI.
+
+╚══════════════════════════════════════════════════════════════════════════════╝
+"""
+    
+    return context
+
+def generate_dynamic_knowledge_base(knowledge_base_string: str) -> str:
+    """
+    Add dynamic date information to knowledge base with temporal awareness
+    
+    Args:
+        knowledge_base_string: Base knowledge base string
+        
+    Returns:
+        Knowledge base with enriched temporal context
+    """
+    now = datetime.now(ITALIAN_TZ)
+    
+    # Generate rich temporal awareness context
+    temporal_context = generate_temporal_awareness_context(now)
+    
+    # Extract dates from KB and provide context
+    dates_found = extract_dates_from_knowledge_base(knowledge_base_string)
+    
+    if dates_found:
+        date_context = "\n\n📋 DATE RILEVATE NELLA KNOWLEDGE BASE:\n"
+        date_context += "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n\n"
+        
+        for date, context in sorted(dates_found, key=lambda x: x[0]):
+            days_diff = (date.date() - now.date()).days
+            
+            if days_diff < 0:
+                status = f"⏪ PASSATO (era {abs(days_diff)} giorni fa)"
+                verb_hint = "→ Usa PASSATO: 'è iniziato', 'si è tenuto'"
+            elif days_diff == 0:
+                status = "🔴 OGGI"
+                verb_hint = "→ Usa PRESENTE: 'inizia', 'si tiene'"
+            else:
+                status = f"⏩ FUTURO (tra {days_diff} giorni)"
+                verb_hint = "→ Usa FUTURO: 'inizierà', 'si terrà'"
+            
+            date_context += f"📅 {date.strftime('%d %B %Y')} - {status}\n"
+            date_context += f"   {verb_hint}\n"
+            date_context += f"   Contesto: ...{context[:100]}...\n\n"
+        
+        temporal_context += date_context
+    
+    # Combine temporal context with KB
+    return temporal_context + "\n\n" + knowledge_base_string
+
 def should_ignore_email(subject: str, content: str, sender_email: str,
                         ignore_keywords: List[str], ignore_senders: List[str]) -> bool:
     """
@@ -200,41 +420,6 @@ def apply_replacements(text: str, replacements: Dict[str, str]) -> str:
         escaped_bad = re.escape(bad_expr)
         text = re.sub(escaped_bad, good_expr, text, flags=re.IGNORECASE)
     return text
-
-def generate_dynamic_knowledge_base(knowledge_base_string: str) -> str:
-    """
-    Add dynamic date information to knowledge base
-    
-    Args:
-        knowledge_base_string: Base knowledge base string
-        
-    Returns:
-        Knowledge base with dynamic date info prepended
-    """
-    now = datetime.now(ITALIAN_TZ)
-    tomorrow = now + timedelta(days=1)
-    day_after_tomorrow = now + timedelta(days=2)
-    
-    date_format = "%A %d %B %Y"
-    import locale
-    try:
-        locale.setlocale(locale.LC_TIME, 'it_IT.UTF-8')
-    except:
-        pass
-    
-    today_string = now.strftime(date_format)
-    tomorrow_string = tomorrow.strftime(date_format)
-    day_after_tomorrow_string = day_after_tomorrow.strftime(date_format)
-    
-    dynamic_info = f"""--- Informazioni Dinamiche Contestuali ---
-Data di oggi: {today_string}
-Data di domani: {tomorrow_string}
-Data di dopodomani: {day_after_tomorrow_string}
-Periodo estivo: dal 29 giugno al 30 agosto.
-Periodo invernale: dal 31 agosto al 28 giugno.
---- Fine Informazioni Dinamiche ---
-"""
-    return dynamic_info + knowledge_base_string
 
 def extract_thread_messages(thread: Dict) -> List[Dict]:
     """
