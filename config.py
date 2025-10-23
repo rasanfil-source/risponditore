@@ -44,7 +44,7 @@ DRY_RUN = os.getenv("DRY_RUN", "false").lower() == "true"
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 
 # Prompt size limits (characters)
-MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "35000"))
+MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "999999"))
 MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "4000"))
 
 # ============ NLP Classification Thresholds ============
