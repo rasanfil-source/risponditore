@@ -1,6 +1,7 @@
 """
 Gmail service module for email operations
 Handles reading, sending, and labeling emails with improved HTML handling
+🔧 FIXED: Robust HTML parsing with multiple fallbacks, better error handling
 """
 
 import base64
@@ -16,7 +17,9 @@ import config
 logger = logging.getLogger(__name__)
 
 
-# ============ Helper Functions ============
+# ============================================================================
+# HELPER FUNCTIONS
+# ============================================================================
 
 def _b64url_decode(data: str) -> bytes:
     """
@@ -45,7 +48,12 @@ def _b64url_decode(data: str) -> bytes:
 
 def _html_to_text(html: str) -> str:
     """
-    Convert HTML to plain text using html2text
+    🔧 FIX: Convert HTML to plain text with robust fallback chain
+    
+    Tries:
+    1. html2text (preferred, maintains structure)
+    2. BeautifulSoup (fallback for complex HTML)
+    3. Regex strip (last resort)
     
     Args:
         html: HTML string
@@ -53,21 +61,69 @@ def _html_to_text(html: str) -> str:
     Returns:
         Plain text representation
     """
+    if not html or not html.strip():
+        return ''
+    
+    # Primary: html2text
     try:
         h = HTML2Text()
-        h.ignore_links = False  # Mantiene i link come [text](url)
+        h.ignore_links = False  # Keep links as [text](url)
         h.ignore_images = True
         h.body_width = 0  # No line wrapping
-        h.ignore_emphasis = False  # Mantiene *bold* e _italic_
-        return h.handle(html).strip()
+        h.ignore_emphasis = False  # Keep *bold* and _italic_
+        result = h.handle(html).strip()
+        
+        # 🔧 FIX: Validate result quality
+        if len(result) < 10 and len(html) > 100:
+            logger.warning(f"⚠️  HTML2Text output suspiciously short ({len(result)} chars from {len(html)} chars HTML)")
+            raise ValueError("Output too short, trying fallback")
+        
+        return result
+        
     except Exception as e:
-        logger.warning(f"⚠️  HTML to text conversion error: {e}")
-        return html  # Fallback: ritorna HTML grezzo
+        logger.warning(f"⚠️  html2text failed: {e}, trying BeautifulSoup")
+        
+        # Secondary: BeautifulSoup
+        try:
+            from bs4 import BeautifulSoup
+            soup = BeautifulSoup(html, 'html.parser')
+            
+            # Remove script and style elements
+            for script in soup(["script", "style"]):
+                script.decompose()
+            
+            text = soup.get_text(separator='\n', strip=True)
+            
+            if text and len(text) > 10:
+                logger.info("✓ Used BeautifulSoup fallback successfully")
+                return text
+            
+            logger.warning("⚠️  BeautifulSoup also produced short output")
+            
+        except Exception as bs_error:
+            logger.warning(f"⚠️  BeautifulSoup also failed: {bs_error}")
+        
+        # Tertiary: Regex strip (last resort)
+        logger.warning("⚠️  Using regex fallback for HTML stripping")
+        text = re.sub('<[^<]+?>', '', html)
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
 
 
-# ============ GmailManager Class ============
+# ============================================================================
+# GMAILMANAGER CLASS
+# ============================================================================
 
 class GmailManager:
+    """
+    Manager for Gmail API operations
+    
+    🔧 IMPROVEMENTS:
+    - Race condition handling for label creation
+    - Robust HTML parsing with fallbacks
+    - Better error handling and logging
+    """
+    
     def __init__(self, user_email: str = None):
         """Initialize Gmail manager with impersonated credentials"""
         self.service = get_gmail_service(user_email)
@@ -75,14 +131,13 @@ class GmailManager:
         
         # Label cache to avoid repeated API calls
         self._label_cache: Dict[str, str] = {}
-        logger.info("✓ Gmail label cache initialized")
+        logger.info("✓ Gmail service initialized with label cache")
         
     def get_or_create_label(self, label_name: str) -> str:
         """
-        Get or create a Gmail label with caching and race condition handling
+        🔧 FIX: Get or create a Gmail label with race condition handling
         
-        CRITICAL FIX: Now handles race conditions where multiple instances
-        might try to create the same label simultaneously
+        Handles concurrent instances trying to create the same label
         
         Args:
             label_name: Name of the label
@@ -96,8 +151,7 @@ class GmailManager:
             return self._label_cache[label_name]
         
         try:
-            # CRITICAL FIX: Always fetch fresh labels to avoid race conditions
-            # (small performance hit but prevents concurrent creation errors)
+            # 🔧 FIX: Always fetch fresh labels to avoid race conditions
             results = self.service.users().labels().list(userId='me').execute()
             labels = results.get('labels', [])
             
@@ -124,11 +178,11 @@ class GmailManager:
                 
                 # Cache the new label
                 self._label_cache[label_name] = created_label['id']
-                logger.info(f"Created new label: {label_name} ({created_label['id']})")
+                logger.info(f"✓ Created new label: {label_name} ({created_label['id']})")
                 return created_label['id']
                 
             except Exception as create_error:
-                # CRITICAL FIX: Handle race condition - another process created it
+                # 🔧 FIX: Handle race condition - another process created it
                 error_msg = str(create_error).lower()
                 if 'already exists' in error_msg or 'duplicate' in error_msg:
                     logger.warning(f"⚠️  Label '{label_name}' created by another process, refetching...")
@@ -149,7 +203,7 @@ class GmailManager:
                     raise
             
         except Exception as e:
-            logger.error(f"Error managing label '{label_name}': {e}")
+            logger.error(f"❌ Error managing label '{label_name}': {e}")
             raise
     
     def clear_label_cache(self):
@@ -194,7 +248,7 @@ class GmailManager:
             return full_threads
             
         except Exception as e:
-            logger.error(f"Error fetching threads: {e}")
+            logger.error(f"❌ Error fetching threads: {e}")
             raise
     
     def add_label_to_thread(self, thread_id: str, label_name: str):
@@ -214,10 +268,10 @@ class GmailManager:
                 body={'addLabelIds': [label_id]}
             ).execute()
             
-            logger.debug(f"Added label '{label_name}' to thread {thread_id}")
+            logger.debug(f"✓ Added label '{label_name}' to thread {thread_id}")
             
         except Exception as e:
-            logger.error(f"Error adding label to thread: {e}")
+            logger.error(f"❌ Error adding label to thread: {e}")
             raise
     
     def extract_message_details(self, message: Dict) -> Dict:
@@ -271,12 +325,12 @@ class GmailManager:
     
     def _extract_body(self, payload: Dict, max_length: int = 50000) -> str:
         """
-        Extract body text from message payload with improved HTML handling
+        🔧 IMPROVED: Extract body text from message payload with robust HTML handling
         
         Strategy:
         1. Recursively walk through multipart structures
         2. Prefer text/plain over text/html
-        3. Convert HTML to readable text if needed
+        3. Convert HTML to readable text with fallback chain
         4. Handle base64 decoding errors gracefully
         
         Args:
@@ -303,34 +357,34 @@ class GmailManager:
                 if mime.startswith('multipart/'):
                     nested = self._extract_body(part, max_length)
                     if nested:
-                        # Se troviamo text/plain in nested, ritorna subito
+                        # If we find text/plain in nested, return immediately
                         if body_text == '':
                             body_text = nested
                         if not mime.endswith('alternative'):
-                            # Per multipart/mixed, ritorna subito
+                            # For multipart/mixed, return immediately
                             return nested
                 
-                # text/plain - PRIORITÀ MASSIMA
+                # text/plain - HIGHEST PRIORITY
                 elif mime == 'text/plain':
                     data = part.get('body', {}).get('data', '')
                     if data:
                         try:
                             body_text = _b64url_decode(data).decode('utf-8', errors='ignore')
-                            return body_text  # Ritorna subito se troviamo text/plain
+                            return body_text  # Return immediately if we find text/plain
                         except Exception as e:
                             logger.warning(f"⚠️  Error decoding text/plain: {e}")
                 
                 # text/html - FALLBACK
                 elif mime == 'text/html':
                     data = part.get('body', {}).get('data', '')
-                    if data and not html_fallback:  # Salva solo il primo HTML trovato
+                    if data and not html_fallback:  # Save only the first HTML found
                         try:
                             html = _b64url_decode(data).decode('utf-8', errors='ignore')
                             html_fallback = _html_to_text(html)
                         except Exception as e:
                             logger.warning(f"⚠️  Error decoding text/html: {e}")
             
-            # Se non abbiamo trovato text/plain, usa HTML convertito
+            # If we didn't find text/plain, use converted HTML
             body_text = body_text if body_text else html_fallback
         
         # Case 2: Single part message (no 'parts')
@@ -342,11 +396,11 @@ class GmailManager:
                 try:
                     decoded = _b64url_decode(data).decode('utf-8', errors='ignore')
                     
-                    # Se è HTML, convertilo
+                    # If it's HTML, convert it
                     if mime == 'text/html':
                         body_text = _html_to_text(decoded)
                     else:
-                        # Altrimenti ritorna come plain text
+                        # Otherwise return as plain text
                         body_text = decoded
                         
                 except Exception as e:
@@ -443,16 +497,18 @@ class GmailManager:
                 }
             ).execute()
             
-            logger.info(f"Reply sent successfully to {original_message['sender']}")
+            logger.info(f"✓ Reply sent successfully to {original_message['sender']}")
             return send_result
             
         except Exception as e:
-            logger.error(f"Error sending reply: {e}")
+            logger.error(f"❌ Error sending reply: {e}")
             raise
     
     def _create_html_reply(self, reply_text: str, original_body: str) -> str:
         """
         Create HTML formatted reply with quoted original message
+        
+        🔧 FIX: Font size reduced from 20px to 14px
         
         Args:
             reply_text: Reply text
@@ -465,7 +521,6 @@ class GmailManager:
         reply_html = reply_text.replace('\n', '<br>')
         original_html = original_body.replace('\n', '<br>')
         
-        # Medium priority fix: Reduced font-size from 20px to 14px
         html = f'''
         <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #351c75;">
             {reply_html}
@@ -495,9 +550,9 @@ class GmailManager:
         Returns:
             Formatted conversation history string
         """
-        # Limita il numero di messaggi per evitare contesti troppo lunghi
+        # Limit number of messages to avoid overly long contexts
         if len(messages) > max_messages:
-            logger.warning(f"⚠️  Thread con {len(messages)} messaggi, limitando a ultimi {max_messages}")
+            logger.warning(f"⚠️  Thread with {len(messages)} messages, limiting to last {max_messages}")
             messages = messages[-max_messages:]
         
         history = []
@@ -508,7 +563,7 @@ class GmailManager:
             else:
                 prefix = f"Utente ({msg['sender']})"
             
-            # Tronca messaggi molto lunghi
+            # Truncate very long messages
             body = msg['body']
             if len(body) > 2000:
                 body = body[:2000] + "\n[... messaggio troncato ...]"
@@ -552,3 +607,65 @@ class GmailManager:
             result_lines.append(line)
         
         return '\n'.join(result_lines).strip()
+    
+    # ========================================================================
+    # HEALTH CHECK AND DIAGNOSTICS
+    # ========================================================================
+    
+    def test_connection(self) -> Dict:
+        """
+        Test Gmail API connection and permissions
+        
+        Returns:
+            Dictionary with test results
+        """
+        results = {
+            'connection_ok': False,
+            'profile_accessible': False,
+            'can_list_messages': False,
+            'can_create_labels': False,
+            'errors': []
+        }
+        
+        try:
+            # Test basic connection
+            profile = self.service.users().getProfile(userId='me').execute()
+            results['connection_ok'] = True
+            results['profile_accessible'] = True
+            results['email_address'] = profile.get('emailAddress')
+            results['messages_total'] = profile.get('messagesTotal')
+            
+            # Test listing messages
+            messages_result = self.service.users().messages().list(
+                userId='me',
+                maxResults=1
+            ).execute()
+            results['can_list_messages'] = True
+            
+            # Test label creation (try to get or create test label)
+            try:
+                test_label_id = self.get_or_create_label('_TEST_LABEL_')
+                results['can_create_labels'] = True
+                
+                # Clean up test label
+                try:
+                    self.service.users().labels().delete(
+                        userId='me',
+                        id=test_label_id
+                    ).execute()
+                except:
+                    pass  # Ignore cleanup errors
+                    
+            except Exception as e:
+                results['errors'].append(f"Cannot create labels: {str(e)}")
+            
+        except Exception as e:
+            results['errors'].append(f"Connection error: {str(e)}")
+        
+        results['is_healthy'] = (
+            results['connection_ok'] and 
+            results['profile_accessible'] and 
+            results['can_list_messages']
+        )
+        
+        return results
