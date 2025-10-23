@@ -127,19 +127,20 @@ def is_in_special_period(month: int, day: int) -> bool:
     """
     # Check special periods (can span year boundaries)
     for (start_month, start_day), (end_month, end_day) in config.SPECIAL_PERIODS:
-        if start_month > end_month:  # Period crosses year boundary
-            if month >= start_month and day >= start_day:
-                return True
-            if month <= end_month and day <= end_day:
+        # Normalize logic with clear month/day comparisons
+        if start_month > end_month:
+            # Period crosses year boundary (e.g., Dec 24 -> Jan 6)
+            in_start_segment = (month > start_month) or (month == start_month and day >= start_day)
+            in_end_segment = (month < end_month) or (month == end_month and day <= end_day)
+            if in_start_segment or in_end_segment:
                 return True
         else:
+            # Normal within-year period
+            if (month > start_month and month < end_month):
+                return True
             if month == start_month and day >= start_day:
-                if month == end_month:
-                    return day <= end_day
                 return True
-            elif start_month < month < end_month:
-                return True
-            elif month == end_month and day <= end_day:
+            if month == end_month and day <= end_day:
                 return True
     
     # Check single-day holidays

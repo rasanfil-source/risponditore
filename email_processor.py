@@ -270,8 +270,10 @@ class EmailProcessor:
             logger.info(f"   From: {message_details['sender_email']}")
             logger.info(f"   Subject: {message_details['subject'][:60]}...")
 
-            # Skip if from ourselves
-            if self.gmail.user_email.lower() in message_details['sender_email'].lower():
+            # Skip if from ourselves (exact match, case-insensitive)
+            sender_email_lower = (message_details.get('sender_email') or '').lower()
+            user_email_lower = (self.gmail.user_email or '').lower()
+            if sender_email_lower == user_email_lower:
                 logger.info(f"   ⊘ Skipping: Self-sent message")
                 return {'status': 'skipped', 'reason': 'self_sent'}
 
@@ -394,7 +396,12 @@ class EmailProcessor:
 
             else:
                 logger.error(f"   ❌ Empty response from Gemini")
-                self.gmail.add_label_to_thread(thread['id'], label_name)
+                # Mark with error label instead of processed label
+                try:
+                    self.gmail.add_label_to_thread(thread['id'], config.ERROR_LABEL_NAME)
+                    logger.warning(f"   Marked thread with error label: {config.ERROR_LABEL_NAME}")
+                except Exception as label_error:
+                    logger.error(f"   Could not add error label: {label_error}")
                 return {'status': 'error', 'reason': 'empty_response'}
 
         except Exception as e:

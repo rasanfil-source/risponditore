@@ -17,17 +17,19 @@ def get_service_account_credentials():
     """
     # Try to load from Secret Manager first (for production)
     if os.environ.get('USE_SECRET_MANAGER', 'false').lower() == 'true':
-        client = secretmanager.SecretManagerServiceClient()
-        project_id = os.environ.get('GCP_PROJECT')
-        secret_name = f"projects/{project_id}/secrets/service-account-key/versions/latest"
-        
-        try:
-            response = client.access_secret_version(request={"name": secret_name})
-            secret_value = response.payload.data.decode("UTF-8")
-            return json.loads(secret_value)
-        except Exception as e:
-            print(f"Error loading from Secret Manager: {e}")
-            # Fall back to file
+        project_id = os.environ.get('GCP_PROJECT') or os.environ.get('GOOGLE_CLOUD_PROJECT')
+        if not project_id:
+            print("USE_SECRET_MANAGER is true but GCP_PROJECT is not set; falling back to file")
+        else:
+            client = secretmanager.SecretManagerServiceClient()
+            secret_name = f"projects/{project_id}/secrets/service-account-key/versions/latest"
+            try:
+                response = client.access_secret_version(request={"name": secret_name})
+                secret_value = response.payload.data.decode("UTF-8")
+                return json.loads(secret_value)
+            except Exception as e:
+                print(f"Error loading from Secret Manager: {e}")
+                # Fall back to file
     
     # Load from file
     if os.path.exists(config.SERVICE_ACCOUNT_FILE):
