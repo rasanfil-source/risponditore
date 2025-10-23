@@ -92,7 +92,6 @@ IGNORE_SENDERS = [
     'mailchimp.com',
     'mailup.com',
     'sendinblue.com',
-    'rasanfil@gmail.com',
     'miqueldg63@gmail.com',
     'rego.juan@gmail.com'
 ]
