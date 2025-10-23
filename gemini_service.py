@@ -1,6 +1,7 @@
 """
 Gemini API service module for AI responses
 Handles generating responses and summarizing conversations
+🔧 FIXED: Better retry logic, improved timeout handling, validation
 """
 
 import requests
@@ -11,123 +12,152 @@ import config
 from utils import get_current_season, get_special_day_greeting
 from datetime import datetime
 from zoneinfo import ZoneInfo
+import logging
 
-# Costante a livello di modulo
+logger = logging.getLogger(__name__)
+
+# Italian timezone constant
 ITALIAN_TZ = ZoneInfo("Europe/Rome")
 
 
-# ============ Retry Decorator ============
+# ============================================================================
+# RETRY DECORATOR WITH EXPONENTIAL BACKOFF
+# ============================================================================
 
-def retry_on_failure(max_retries=3, delay=2):
+def retry_on_failure(max_retries=3, delay=2, backoff_factor=2):
     """
-    Decorator per retry automatico in caso di errore
-    
+    Decorator for automatic retry with exponential backoff
+
     Args:
-        max_retries: Numero massimo di tentativi
-        delay: Ritardo base in secondi (con exponential backoff)
+        max_retries: Maximum number of attempts
+        delay: Base delay in seconds
+        backoff_factor: Multiplier for exponential backoff
     """
     def decorator(func):
         def wrapper(*args, **kwargs):
             for attempt in range(max_retries):
                 try:
                     return func(*args, **kwargs)
-                except requests.exceptions.RequestException as e:
+                except requests.exceptions.Timeout as e:
                     if attempt < max_retries - 1:
-                        wait_time = delay * (2 ** attempt)  # Exponential backoff
-                        print(f"⚠️  Gemini API attempt {attempt + 1}/{max_retries} failed: {e}")
-                        print(f"   Retrying in {wait_time}s...")
+                        wait_time = delay * (backoff_factor ** attempt)
+                        logger.warning(f"⚠️  Gemini API timeout (attempt {attempt + 1}/{max_retries})")
+                        logger.info(f"   Retrying in {wait_time}s...")
                         time.sleep(wait_time)
                     else:
-                        print(f"❌ All {max_retries} Gemini API attempts failed")
+                        logger.error(f"❌ All {max_retries} Gemini API attempts timed out")
+                        raise
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries - 1:
+                        wait_time = delay * (backoff_factor ** attempt)
+                        logger.warning(f"⚠️  Gemini API network error (attempt {attempt + 1}/{max_retries}): {e}")
+                        logger.info(f"   Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ All {max_retries} Gemini API attempts failed")
                         raise
                 except Exception as e:
-                    # Per errori non di rete, non fare retry
-                    print(f"❌ Gemini API error (no retry): {e}")
+                    # For non-network errors, don't retry
+                    logger.error(f"❌ Gemini API error (no retry): {e}")
                     raise
         return wrapper
     return decorator
 
 
-# ============ GeminiService Class ============
+# ============================================================================
+# GEMINISERVICE CLASS
+# ============================================================================
 
 class GeminiService:
+    """
+    Service for Gemini AI API interactions
+
+    🔧 IMPROVEMENTS:
+    - Better retry logic with exponential backoff
+    - Improved timeout handling
+    - Response validation
+    - Better error messages
+    """
+
     def __init__(self):
         """Initialize Gemini service with API configuration"""
         self.api_key = config.GEMINI_API_KEY
         self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.MODEL_NAME}:generateContent"
-        
-        # Validazione API key
+
+        # Validate API key
         if not self.api_key:
             raise ValueError(
                 "GEMINI_API_KEY not configured in environment variables. "
                 "Please set GEMINI_API_KEY before running."
             )
-        
-        print(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
-    
+
+        if len(self.api_key) < 20:
+            logger.warning("⚠️  GEMINI_API_KEY seems too short, please verify")
+
+        logger.info(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
+
     def _detect_email_language(self, email_content: str, email_subject: str) -> str:
         """
         Detect the language of the email
-        
+
         Args:
             email_content: Email body text
             email_subject: Email subject
-            
+
         Returns:
             'it' for Italian, 'en' for English, 'es' for Spanish
         """
         text = (email_subject + ' ' + email_content).lower()
-        
-        # Simple keyword-based detection
+
         # English indicators
-        english_keywords = ['the', 'and', 'would', 'could', 'please', 'thank you', 
+        english_keywords = ['the', 'and', 'would', 'could', 'please', 'thank you',
                            'dear', 'we are', 'project', 'information', 'your', 'with',
                            'from', 'our', 'have', 'this', 'that', 'honored', 'exhibition',
                            'request', 'contribute', 'peace', 'students']
         english_score = sum(1 for kw in english_keywords if f' {kw} ' in f' {text} ')
-        
+
         # Spanish indicators
         spanish_keywords = ['el', 'la', 'de', 'que', 'por favor', 'gracias',
                            'querido', 'somos', 'proyecto', 'información', 'con', 'para',
                            'su', 'este', 'esta']
         spanish_score = sum(1 for kw in spanish_keywords if f' {kw} ' in f' {text} ')
-        
+
         # Italian indicators
         italian_keywords = ['il', 'la', 'di', 'che', 'per favore', 'grazie',
                            'gentile', 'siamo', 'progetto', 'informazioni', 'con', 'per',
                            'vorrei', 'quando', 'come']
         italian_score = sum(1 for kw in italian_keywords if f' {kw} ' in f' {text} ')
-        
+
         # Determine language
         scores = {'it': italian_score, 'en': english_score, 'es': spanish_score}
         detected_lang = max(scores, key=scores.get)
-        
-        print(f"🌍 Language detection - IT={italian_score}, EN={english_score}, ES={spanish_score}")
-        
+
+        logger.debug(f"🌍 Language detection - IT={italian_score}, EN={english_score}, ES={spanish_score}")
+
         # If score is too low, default to Italian
         if scores[detected_lang] < 2:
-            print(f"   Low confidence, defaulting to Italian")
+            logger.debug(f"   Low confidence, defaulting to Italian")
             return 'it'
-        
-        print(f"   Detected: {detected_lang.upper()} (score: {scores[detected_lang]})")
+
+        logger.info(f"   Detected: {detected_lang.upper()} (score: {scores[detected_lang]})")
         return detected_lang
-    
+
     def _get_adaptive_greeting(self, now: datetime, sender_name: str, language: str = 'it') -> tuple:
         """
-        Get greeting and closing adapted to language
-        
+        Get greeting and closing adapted to language and time
+
         Args:
             now: Current datetime
             sender_name: Name of the sender
             language: Detected language code
-            
+
         Returns:
             (greeting, closing) tuple
         """
         special_greeting = get_special_day_greeting(now)
         hour = now.hour
         day = now.weekday()
-        
+
         # Italian greetings
         if language == 'it':
             if special_greeting:
@@ -142,9 +172,9 @@ class GeminiService:
                 greeting = 'Buonasera.'
             else:
                 greeting = f'Gentile {sender_name},'
-            
+
             closing = 'Cordiali saluti,'
-        
+
         # English greetings
         elif language == 'en':
             if special_greeting:
@@ -169,9 +199,9 @@ class GeminiService:
                 greeting = 'Good evening,'
             else:
                 greeting = f'Dear {sender_name},'
-            
+
             closing = 'Kind regards,'
-        
+
         # Spanish greetings
         elif language == 'es':
             if special_greeting:
@@ -192,17 +222,17 @@ class GeminiService:
                 greeting = 'Buenas noches,'
             else:
                 greeting = f'Estimado/a {sender_name},'
-            
+
             closing = 'Cordiales saludos,'
-        
+
         else:
             # Fallback to Italian
             greeting = f'Gentile {sender_name},'
             closing = 'Cordiali saluti,'
-        
+
         return greeting, closing
-    
-    @retry_on_failure(max_retries=3, delay=2)
+
+    @retry_on_failure(max_retries=3, delay=2, backoff_factor=2)
     def generate_response(
         self,
         email_content: str,
@@ -215,7 +245,7 @@ class GeminiService:
     ) -> Optional[str]:
         """
         Generate AI response for an email with retry logic
-        
+
         Args:
             email_content: Content of the email
             email_subject: Subject of the email
@@ -224,15 +254,16 @@ class GeminiService:
             sender_email: Email address of sender
             conversation_history: Previous conversation history
             category: Email category from classifier (optional)
-            
+
         Returns:
             AI generated response or None if error
         """
         # Check if it's just an acknowledgment (backup check)
         main_reply = self._extract_main_reply(email_content)
         if self._is_only_acknowledgement(main_reply):
+            logger.info("   Gemini: Detected acknowledgment, returning NO_REPLY")
             return "NO_REPLY"
-        
+
         # Check for simple thank you patterns (backup check)
         normalized = email_content.strip().lower()
         thank_you_patterns = [
@@ -244,12 +275,13 @@ class GeminiService:
             r'^tutto chiaro\.?$',
             r'^perfetto\.?$'
         ]
-        
+
         import re
         for pattern in thank_you_patterns:
             if re.match(pattern, normalized):
+                logger.info("   Gemini: Matched thank-you pattern, returning NO_REPLY")
                 return "NO_REPLY"
-        
+
         # Generate prompt
         prompt = self._build_prompt(
             email_content,
@@ -260,11 +292,16 @@ class GeminiService:
             conversation_history,
             category
         )
-        
+
+        # Validate prompt size
+        if len(prompt) > 100000:
+            logger.warning(f"⚠️  Prompt very large ({len(prompt)} chars), may cause issues")
+
         # Call Gemini API with timeout
         try:
-            print(f"🤖 Calling Gemini API for: {sender_email}")
-            
+            logger.info(f"🤖 Calling Gemini API for: {sender_email}")
+            logger.debug(f"   Prompt size: {len(prompt)} chars")
+
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
@@ -275,37 +312,52 @@ class GeminiService:
                     }
                 },
                 headers={"Content-Type": "application/json"},
-                timeout=30  # 30 secondi di timeout
+                timeout=30  # 30 seconds timeout
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
-                if result.get("candidates") and result["candidates"][0].get("content"):
-                    generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
-                    print(f"✓ Gemini response generated ({len(generated_text)} chars)")
-                    return generated_text
-                else:
-                    print(f"❌ Invalid Gemini response structure: {result}")
+
+                # Validate response structure
+                if not result.get("candidates"):
+                    logger.error(f"❌ Invalid Gemini response: no candidates")
+                    logger.debug(f"   Response: {result}")
                     return None
+
+                if not result["candidates"][0].get("content"):
+                    logger.error(f"❌ Invalid Gemini response: no content in candidate")
+                    logger.debug(f"   Response: {result}")
+                    return None
+
+                generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
+
+                # Validate generated text
+                if not generated_text or len(generated_text.strip()) == 0:
+                    logger.error(f"❌ Gemini returned empty response")
+                    return None
+
+                logger.info(f"✓ Gemini response generated ({len(generated_text)} chars)")
+                return generated_text
             else:
-                print(f"❌ Gemini API error: {response.status_code} - {response.text}")
+                logger.error(f"❌ Gemini API error: {response.status_code}")
+                logger.error(f"   Response: {response.text[:500]}")
                 return None
-                
+
         except requests.exceptions.Timeout:
-            print(f"⏱️  Gemini API timeout after 30s")
-            raise
+            logger.error(f"⏱️  Gemini API timeout after 30s")
+            raise  # Let retry decorator handle it
         except Exception as e:
-            print(f"❌ Error calling Gemini API: {e}")
+            logger.error(f"❌ Error calling Gemini API: {e}")
             raise
-    
-    @retry_on_failure(max_retries=2, delay=1)
+
+    @retry_on_failure(max_retries=2, delay=1, backoff_factor=2)
     def summarize_conversation(self, conversation_history: str) -> str:
         """
         Summarize a long conversation history with retry logic
-        
+
         Args:
             conversation_history: Full conversation history
-            
+
         Returns:
             Summarized conversation or original if short/error
         """
@@ -313,7 +365,7 @@ class GeminiService:
         word_count = len(conversation_history.split())
         if word_count < 60:
             return conversation_history
-        
+
         prompt = f"""
 Sei un assistente di segreteria. Riassumi la seguente conversazione email
 in massimo 5 frasi, mantenendo SOLO:
@@ -323,14 +375,12 @@ in massimo 5 frasi, mantenendo SOLO:
 NON includere ringraziamenti, formule di cortesia, firme o dettagli irrilevanti.
 
 Conversazione:
-\"\"\"
 {conversation_history}
-\"\"\"
 """
-        
+
         try:
-            print(f"📝 Summarizing conversation ({word_count} words)...")
-            
+            logger.info(f"📝 Summarizing conversation ({word_count} words)...")
+
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
@@ -341,31 +391,31 @@ Conversazione:
                     }
                 },
                 headers={"Content-Type": "application/json"},
-                timeout=20  # 20 secondi di timeout per summarization
+                timeout=20  # 20 seconds timeout for summarization
             )
-            
+
             if response.status_code == 200:
                 result = response.json()
                 if result.get("candidates") and result["candidates"][0].get("content"):
                     summary = result["candidates"][0]["content"]["parts"][0]["text"].strip()
-                    
+
                     # Validate summary
                     if len(summary.split()) < 15 or "non ho abbastanza informazioni" in summary.lower():
-                        print("⚠️  Summary too short or vague, using full history")
+                        logger.warning("⚠️  Summary too short or vague, using full history")
                         return conversation_history
-                    
-                    print(f"✓ Conversation summarized ({len(summary.split())} words)")
+
+                    logger.info(f"✓ Conversation summarized ({len(summary.split())} words)")
                     return summary
-                    
+
         except requests.exceptions.Timeout:
-            print(f"⏱️  Summary timeout, using full history")
+            logger.warning(f"⏱️  Summary timeout, using full history")
             return conversation_history
         except Exception as e:
-            print(f"⚠️  Error summarizing conversation: {e}, using full history")
+            logger.warning(f"⚠️  Error summarizing conversation: {e}, using full history")
             return conversation_history
-        
+
         return conversation_history
-    
+
     def _build_prompt(
         self,
         email_content: str,
@@ -378,19 +428,19 @@ Conversazione:
     ) -> str:
         """
         Build the prompt for Gemini API
-        
+
         Returns:
             Complete prompt string
         """
-        # Usa timezone italiano
+        # Use Italian timezone
         now = datetime.now(ITALIAN_TZ)
-        
+
         # Detect language
         detected_language = self._detect_email_language(email_content, email_subject)
-        
+
         # Get adaptive greeting and closing
         salutation, closing_phrase = self._get_adaptive_greeting(now, sender_name, detected_language)
-        
+
         # Get current season
         current_season = get_current_season(now)
         seasonal_note = (
@@ -398,7 +448,7 @@ Conversazione:
             if current_season == 'estivo'
             else 'IMPORTANTE: Siamo attualmente nel periodo INVERNALE. Utilizza SOLO gli orari invernali nelle risposte.'
         )
-        
+
         # Language instruction based on detected language
         if detected_language == 'en':
             language_instruction = (
@@ -425,7 +475,7 @@ Conversazione:
                 "Se è in spagnolo, rispondi in spagnolo. "
                 "Non tradurre e non mischiare lingue."
             )
-        
+
         # Build prompt parts
         prompt_parts = [
             "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.",
@@ -443,7 +493,7 @@ Conversazione:
             "Non mostrare mai contemporaneamente sia gli orari estivi che quelli invernali. Mostra SOLO quelli del periodo corrente.",
             "",
         ]
-        
+
         # Add category hint if available
         if category:
             category_hints = {
@@ -453,14 +503,14 @@ Conversazione:
                 'collaboration': "NOTA: Questa email propone collaborazione o volontariato. Ringrazia e spiega come procedere.",
                 'complaint': "NOTA: Questa email potrebbe contenere un reclamo. Rispondi con empatia e professionalità."
             }
-            
+
             if category in category_hints:
                 prompt_parts.extend([
                     "**CATEGORIA EMAIL IDENTIFICATA:**",
                     category_hints[category],
                     ""
                 ])
-        
+
         # Add conversation history if present
         if conversation_history:
             prompt_parts.extend([
@@ -471,7 +521,7 @@ Conversazione:
                 '"""',
                 "",
             ])
-        
+
         # Add current email
         prompt_parts.extend([
             "**ULTIMA EMAIL RICEVUTA (A CUI RISPONDERE):**",
@@ -557,51 +607,110 @@ Conversazione:
             "",
             "Adesso, genera la risposta completa utilizzando tutte le informazioni disponibili:"
         ])
-        
+
         return '\n'.join(prompt_parts)
-    
+
     def _extract_main_reply(self, content: str) -> str:
         """Extract main reply content without quoted text"""
         import re
-        
+
         markers = [r'^>', r'^On .* wrote:', r'^Il giorno .* ha scritto:']
         cut_content = content
-        
+
         for marker in markers:
             match = re.search(marker, content, re.MULTILINE)
             if match:
                 cut_content = content[:match.start()]
                 break
-        
+
         return cut_content.strip()
-    
+
     def _is_only_acknowledgement(self, text: str) -> bool:
         """Check if text is only an acknowledgement"""
         if not text:
             return False
-        
+
         import re
-        
+
         cleaned = text.lower().replace(' ', '').strip()
         cleaned = re.sub(r'[^\w\sàèéìòù?]', '', cleaned)
-        
+
         ack_patterns = [
-            r'^grazie$', r'^graziemille$', r'^grazieancora$',
-            r'^graziedicuore$', r'^viringrazio$', r'^tiringrazio$',
-            r'^laringrazio$', r'^ricevuto$', r'^okricevuto$',
-            r'^tuttochiaro$', r'^perfetto$'
-        ]
-        
+    r'^grazie$',
+    r'^graziemille$',
+    r'^grazieancora$',
+    r'^graziedicuore$',
+    r'^viringrazio$',
+    r'^tiringrazio$',
+    r'^laringrazio$',
+    r'^ricevuto$',
+    r'^okricevuto$',
+    r'^tuttochiaro$',
+    r'^perfetto$'
+]
+
         for pattern in ack_patterns:
             if re.match(pattern, cleaned):
                 return True
-        
+
         # Check if contains thanks/received with a question
         if ('grazie' in cleaned or 'ricevuto' in cleaned):
-            if '?' in cleaned or any(word in cleaned for word in 
+            if '?' in cleaned or any(word in cleaned for word in
                 ['quando', 'come', 'dove', 'cosa', 'che', 'chi', 'perché',
                  'posso', 'potrei', 'vorrei', 'sapere', 'chiedo']):
                 return False
             return True
-        
+
         return False
+
+    # ========================================================================
+    # HEALTH CHECK AND DIAGNOSTICS
+    # ========================================================================
+
+    def test_connection(self) -> Dict:
+        """
+        Test Gemini API connection
+
+        Returns:
+            Dictionary with test results
+        """
+        results = {
+            'connection_ok': False,
+            'can_generate': False,
+            'errors': []
+        }
+
+        try:
+            # Test simple generation
+            test_prompt = "Rispondi con una sola parola: OK"
+
+            response = requests.post(
+                f"{self.base_url}?key={self.api_key}",
+                json={
+                    "contents": [{"parts": [{"text": test_prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "maxOutputTokens": 10
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+
+            results['connection_ok'] = response.status_code == 200
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("candidates"):
+                    results['can_generate'] = True
+                else:
+                    results['errors'].append("API returned no candidates")
+            else:
+                results['errors'].append(f"API returned status {response.status_code}")
+
+        except Exception as e:
+            results['errors'].append(f"Connection error: {str(e)}")
+
+        results['is_healthy'] = results['connection_ok'] and results['can_generate']
+
+        return results
