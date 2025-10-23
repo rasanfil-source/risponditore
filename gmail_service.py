@@ -508,8 +508,7 @@ class GmailManager:
         """
         Create HTML formatted reply with quoted original message
         
-        🔧 FIX: Font size reduced from 20px to 14px
-        
+                
         Args:
             reply_text: Reply text
             original_body: Original message body
@@ -522,7 +521,7 @@ class GmailManager:
         original_html = original_body.replace('\n', '<br>')
         
         html = f'''
-        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #351c75;">
+        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 20px; color: #351c75;">
             {reply_html}
             <br><br>
             <hr>
