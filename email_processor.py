@@ -1,6 +1,7 @@
 """
 Email processor module - Orchestrates the email processing pipeline
 Coordinates filtering, classification, and response generation
+🔧 FIXED: Smart KB truncation, improved error handling, better logging
 """
 
 import logging
@@ -24,6 +25,11 @@ class EmailProcessor:
     """
     Orchestrates the email processing pipeline:
     Gmail → Fast Filters → NLP Classification → Knowledge Base → Gemini → Response
+    
+    🔧 IMPROVEMENTS:
+    - Smart KB truncation preserving structure
+    - Better error handling with error labels
+    - Improved logging and statistics
     """
 
     def __init__(self):
@@ -64,7 +70,7 @@ class EmailProcessor:
         logger.info("\n📚 Loading resources from Google Sheets...")
         
         try:
-            # Carica knowledge base
+            # Load knowledge base
             knowledge_data = self.sheets.load_knowledge_base()
             
             if not knowledge_data:
@@ -78,7 +84,7 @@ class EmailProcessor:
                     f"   3. Service account has access"
                 )
 
-            # Verifica che le chiavi necessarie siano presenti
+            # Verify required keys
             required_keys = ['knowledge_base_string', 'ignore_keywords', 'ignore_domains']
             missing_keys = [key for key in required_keys if key not in knowledge_data]
             
@@ -89,26 +95,26 @@ class EmailProcessor:
                     f"   Expected keys: {required_keys}"
                 )
 
-            # Assegna dati
+            # Assign data
             self.knowledge_base = knowledge_data['knowledge_base_string']
             self.ignore_keywords = knowledge_data['ignore_keywords']
             self.ignore_domains = knowledge_data['ignore_domains']
 
-            # Carica sostituzioni (opzionale)
+            # Load replacements (optional)
             try:
                 self.replacements = self.sheets.load_replacements()
             except Exception as e:
                 logger.warning(f"⚠️  Could not load replacements sheet (non-critical): {e}")
                 self.replacements = {}
             
-            # Stampa statistiche
+            # Print statistics
             logger.info(f"\n✓ Resources loaded successfully:")
             logger.info(f"   📖 Knowledge base: {len(self.knowledge_base)} characters")
             logger.info(f"   🚫 Ignore keywords: {len(self.ignore_keywords)} entries")
             logger.info(f"   🚫 Ignore domains: {len(self.ignore_domains)} entries")
             logger.info(f"   🔄 Replacements: {len(self.replacements)} entries")
             
-            # Mostra sample della knowledge base
+            # Show KB preview
             if self.knowledge_base:
                 lines = self.knowledge_base.split('\n')
                 preview_lines = min(3, len(lines))
@@ -167,7 +173,8 @@ class EmailProcessor:
                 'processed': 0,
                 'replied': 0,
                 'filtered': 0,
-                'errors': 0
+                'errors': 0,
+                'dry_run_count': 0
             }
 
             for i, thread in enumerate(threads, 1):
@@ -180,7 +187,9 @@ class EmailProcessor:
 
                     if result['status'] == 'replied':
                         results['replied'] += 1
-                        logger.info(f"✓ Thread {i}: Response sent")
+                        if result.get('dry_run'):
+                            results['dry_run_count'] += 1
+                        logger.info(f"✓ Thread {i}: Response sent{' (DRY RUN)' if result.get('dry_run') else ''}")
                     elif result['status'] == 'filtered':
                         results['filtered'] += 1
                         logger.info(f"⊘ Thread {i}: Filtered ({result.get('reason', 'unknown')})")
@@ -193,7 +202,7 @@ class EmailProcessor:
                     logger.error(f"❌ Error processing thread {i} ({thread['id']}): {e}", exc_info=True)
                     results['errors'] += 1
                     
-                    # CRITICAL FIX: Add error label instead of processing label on failures
+                    # 🔧 FIX: Add error label instead of processing label on failures
                     try:
                         error_label = config.ERROR_LABEL_NAME
                         self.gmail.add_label_to_thread(thread['id'], error_label)
@@ -207,6 +216,8 @@ class EmailProcessor:
             logger.info(f"{'='*60}")
             logger.info(f"   Total processed: {results['processed']}")
             logger.info(f"   ✓ Replied: {results['replied']}")
+            if results['dry_run_count'] > 0:
+                logger.info(f"   🔴 Dry run: {results['dry_run_count']}")
             logger.info(f"   ⊘ Filtered: {results['filtered']}")
             logger.info(f"   ❌ Errors: {results['errors']}")
             logger.info(f"{'='*60}\n")
@@ -216,7 +227,9 @@ class EmailProcessor:
                 'processed': results['processed'],
                 'replied': results['replied'],
                 'filtered': results['filtered'],
-                'errors': results['errors']
+                'errors': results['errors'],
+                'dry_run': config.DRY_RUN,
+                'dry_run_count': results['dry_run_count']
             }
 
         except Exception as e:
@@ -312,30 +325,21 @@ class EmailProcessor:
             conversation_history = self.gmail.build_conversation_history(conversation_messages)
             logger.info(f"      Conversation: {len(conversation_messages)} message(s)")
 
-            # CRITICAL FIX: Limit conversation history size
+            # Limit conversation history size
             if len(conversation_history) > config.MAX_CONVERSATION_CHARS:
                 logger.info(f"      Summarizing long conversation ({len(conversation_history)} chars)...")
                 summarized_history = self.gemini.summarize_conversation(conversation_history)
             else:
                 summarized_history = conversation_history
 
-            # Generate dynamic knowledge base with INTELLIGENT TEMPORAL CONTEXT
-            # This provides Gemini with temporal awareness to avoid future tense for past events
+            # Generate dynamic knowledge base with temporal context
             final_knowledge_base = generate_dynamic_knowledge_base(self.knowledge_base)
             
             logger.info(f"      Knowledge base with temporal context: {len(final_knowledge_base)} chars")
             
-            # CRITICAL FIX: Truncate knowledge base if too large
-            # Note: Temporal context is prioritized and won't be truncated
+            # 🔧 FIX: Smart truncation preserving structure
             if len(final_knowledge_base) > config.MAX_KNOWLEDGE_BASE_CHARS:
-                logger.warning(f"      Knowledge base too large ({len(final_knowledge_base)} chars), truncating...")
-                # Keep temporal context (first ~2000 chars), truncate KB content
-                temporal_part = final_knowledge_base[:2000]
-                kb_part = final_knowledge_base[2000:]
-                remaining_space = config.MAX_KNOWLEDGE_BASE_CHARS - 2000
-                if len(kb_part) > remaining_space:
-                    kb_part = kb_part[:remaining_space] + "\n\n[... knowledge base truncated ...]"
-                final_knowledge_base = temporal_part + kb_part
+                final_knowledge_base = self._smart_truncate_kb(final_knowledge_base)
 
             # === STAGE 4: Gemini Response Generation ===
             logger.info(f"   🤖 Stage 4: Generating AI response...")
@@ -365,7 +369,7 @@ class EmailProcessor:
                     self.gmail.add_label_to_thread(thread['id'], label_name)
                     return {'status': 'filtered', 'reason': 'invalid_response'}
 
-                # CRITICAL FIX: DRY-RUN mode check
+                # DRY-RUN mode check
                 if config.DRY_RUN:
                     logger.warning(f"   🔴 DRY_RUN MODE: Skipping email send")
                     logger.info(f"   📝 Would have sent response ({len(ai_response)} chars):")
@@ -397,6 +401,71 @@ class EmailProcessor:
             logger.error(f"   ❌ Error in thread processing: {e}", exc_info=True)
             raise
 
+    def _smart_truncate_kb(self, kb_text: str) -> str:
+        """
+        🔧 FIX: Smart truncation that preserves entry structure
+        
+        Args:
+            kb_text: Full knowledge base text
+            
+        Returns:
+            Truncated KB preserving structure
+        """
+        logger.warning(f"      KB too large ({len(kb_text)} chars), smart truncating...")
+        
+        # Split temporal context from KB content
+        split_marker = "📋 DATE RILEVATE NELLA KNOWLEDGE BASE:"
+        
+        if split_marker in kb_text:
+            parts = kb_text.split(split_marker)
+            temporal_part = parts[0] + split_marker
+            
+            # Find end of date section
+            if len(parts) > 1:
+                date_section_parts = parts[1].split("\n\n", 1)
+                if len(date_section_parts) > 1:
+                    temporal_part += date_section_parts[0]
+                    kb_content = date_section_parts[1]
+                else:
+                    temporal_part += parts[1]
+                    kb_content = ""
+            else:
+                kb_content = ""
+        else:
+            # Fallback: assume first 2000 chars are temporal
+            temporal_part = kb_text[:2000]
+            kb_content = kb_text[2000:]
+        
+        remaining_space = config.MAX_KNOWLEDGE_BASE_CHARS - len(temporal_part)
+        
+        if len(kb_content) > remaining_space:
+            # Truncate at entry boundaries
+            entry_marker = "--- Informazione ---"
+            entries = kb_content.split(entry_marker)
+            
+            truncated_entries = [entries[0]]  # Keep any preamble
+            current_size = len(entries[0])
+            entries_kept = 0
+            
+            for entry in entries[1:]:
+                entry_with_marker = entry_marker + entry
+                if current_size + len(entry_with_marker) < remaining_space - 200:  # Leave space for note
+                    truncated_entries.append(entry_with_marker)
+                    current_size += len(entry_with_marker)
+                    entries_kept += 1
+                else:
+                    break
+            
+            kb_content = "".join(truncated_entries)
+            kb_content += f"\n\n[... {len(entries) - entries_kept - 1} informazioni omesse per limiti di spazio ...]"
+            
+            logger.info(f"      Kept {entries_kept}/{len(entries)-1} KB entries")
+        
+        result = temporal_part + "\n\n" + kb_content
+        logger.info(f"      Final KB size: {len(result)} chars")
+        
+        return result
+
     def _validate_response(self, response: str, message_details: Dict) -> bool:
         """
         Validate AI response quality
@@ -416,7 +485,7 @@ class EmailProcessor:
         # Check maximum length
         if len(response.strip()) > 3000:
             logger.warning(f"      ⚠️  Response very long ({len(response)} chars)")
-            # Non blocchiamo, ma avvisiamo
+            # Non-blocking, just warning
 
         # Check for greeting (warning only)
         required_greetings = ['buongiorno', 'buonasera', 'buon pomeriggio', 'gentile', 'buona', 
