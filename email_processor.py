@@ -319,13 +319,23 @@ class EmailProcessor:
             else:
                 summarized_history = conversation_history
 
-            # Generate dynamic knowledge base with size limit
+            # Generate dynamic knowledge base with INTELLIGENT TEMPORAL CONTEXT
+            # This provides Gemini with temporal awareness to avoid future tense for past events
             final_knowledge_base = generate_dynamic_knowledge_base(self.knowledge_base)
             
+            logger.info(f"      Knowledge base with temporal context: {len(final_knowledge_base)} chars")
+            
             # CRITICAL FIX: Truncate knowledge base if too large
+            # Note: Temporal context is prioritized and won't be truncated
             if len(final_knowledge_base) > config.MAX_KNOWLEDGE_BASE_CHARS:
                 logger.warning(f"      Knowledge base too large ({len(final_knowledge_base)} chars), truncating...")
-                final_knowledge_base = final_knowledge_base[:config.MAX_KNOWLEDGE_BASE_CHARS] + "\n\n[... knowledge base truncated ...]"
+                # Keep temporal context (first ~2000 chars), truncate KB content
+                temporal_part = final_knowledge_base[:2000]
+                kb_part = final_knowledge_base[2000:]
+                remaining_space = config.MAX_KNOWLEDGE_BASE_CHARS - 2000
+                if len(kb_part) > remaining_space:
+                    kb_part = kb_part[:remaining_space] + "\n\n[... knowledge base truncated ...]"
+                final_knowledge_base = temporal_part + kb_part
 
             # === STAGE 4: Gemini Response Generation ===
             logger.info(f"   🤖 Stage 4: Generating AI response...")
