@@ -1,6 +1,7 @@
 """
 NLP Classification module for email filtering and categorization
 Uses regex, heuristics, and pattern matching for fast pre-filtering
+🔧 FIXED: Added booking/reservation patterns and improved request detection
 """
 
 import re
@@ -10,6 +11,12 @@ import config
 class EmailClassifier:
     """
     Multi-stage email classifier for intelligent filtering
+    
+    🔧 IMPROVEMENTS:
+    - Added "prenotare/prenotazione" patterns for bookings
+    - Enhanced implicit request detection with "posti", "visita"
+    - Analyze both subject and body for requests
+    - Lowered MIN_CONTENT_LENGTH from 40 to 35 chars
     """
 
     def __init__(self):
@@ -46,9 +53,11 @@ class EmailClassifier:
         self.categories = {
             'appointment': [
                 'appuntamento', 'fissare', 'prenotare', 'quando posso',
-                'disponibilità', 'orario', 'incontro',
+                'disponibilità', 'orario', 'incontro', 'prenotazione',
+                'riservare', 'riserva', 'posti', 'visita',
                 # English equivalents
-                'appointment', 'schedule', 'book', 'availability', 'meeting'
+                'appointment', 'schedule', 'book', 'booking', 'availability', 
+                'meeting', 'reservation', 'reserve', 'visit'
             ],
             'information': [
                 'informazioni', 'chiedere', 'sapere', 'vorrei sapere',
@@ -85,11 +94,15 @@ class EmailClassifier:
             r'\bse possibile\b', r'\bsarebbe possibile\b',
             r'\bpotrebbe\b', r'\bpotreste\b',
             r'\bcontribuire\b', r'\bpartecipare\b',
+            # 🔧 NEW: Booking/reservation indicators
+            r'\bprenoter[eèo]i\b', r'\bprenotare\b', r'\bprenotazione\b',
+            r'\briservare\b', r'\briserva\b',
             # English
             r'\bwould be honored\b', r'\bwould appreciate\b', r'\bcould you\b',
             r'\bif possible\b', r'\bwould it be possible\b',
             r'\bwe are\b.*\bproject\b', r'\bwe would like\b',
-            r'\bcontribute\b', r'\bparticipate\b'
+            r'\bcontribute\b', r'\bparticipate\b',
+            r'\bbook\b', r'\breserve\b', r'\breservation\b'
         ]
         
         print(f"✓ Classifier initialized with {len(self.categories)} categories")
@@ -97,6 +110,11 @@ class EmailClassifier:
     def classify_email(self, subject: str, body: str, is_reply: bool = False) -> Dict:
         """
         Classify email through multi-stage pipeline
+        
+        🔧 IMPROVEMENTS:
+        - Analyze subject + body for requests
+        - Enhanced booking/reservation detection
+        - Lowered content length threshold
 
         Args:
             subject: Email subject
@@ -138,15 +156,18 @@ class EmailClassifier:
                 'confidence': 0.95
             }
 
+        # 🔧 FIX: Combine subject + body for full analysis
+        full_text = subject + ' ' + main_content
+
         # Check for legitimate request indicators (BEFORE other filters)
-        if self._has_legitimate_request_indicator(subject + ' ' + main_content):
-            category = self._categorize_content(subject + ' ' + main_content)
+        if self._has_legitimate_request_indicator(full_text):
+            category = self._categorize_content(full_text)
             print(f"      ✓ Legitimate request indicator found")
-            print(f"      → Category: {category or 'collaboration'}")
+            print(f"      → Category: {category or 'general'}")
             return {
                 'should_reply': True,
                 'reason': 'legitimate_request',
-                'category': category or 'collaboration',
+                'category': category or 'general',
                 'confidence': 0.9
             }
 
@@ -166,12 +187,33 @@ class EmailClassifier:
         has_questions = self._contains_questions(main_content)
         has_request = self._contains_request(main_content)
         
+        # 🔧 FIX: Also check subject for requests
+        has_request_in_subject = self._contains_request(subject)
+        has_implicit_in_full = self._has_implicit_request(full_text)
+        
+        if has_request_in_subject:
+            print(f"      ✓ Request found in SUBJECT")
+            has_request = True
+        
         print(f"      Questions: {has_questions}, Requests: {has_request}")
 
-        MIN_CONTENT_LENGTH = 40
+        # 🔧 FIX: Lowered from 40 to 35
+        MIN_CONTENT_LENGTH = 35
 
         if not has_questions and not has_request:
-            # Rispondi comunque se il messaggio è sostanzioso
+            # Check implicit request first
+            if has_implicit_in_full:
+                category = self._categorize_content(full_text)
+                print(f"      ✓ Implicit request detected")
+                print(f"      → Category: {category or 'general'}")
+                return {
+                    'should_reply': True,
+                    'reason': 'implicit_request',
+                    'category': category,
+                    'confidence': 0.80
+                }
+            
+            # Sustained message check
             if len(main_content.strip()) >= MIN_CONTENT_LENGTH:
                 print(f"      ✓ Sustained message (>={MIN_CONTENT_LENGTH} chars)")
                 return {
@@ -179,18 +221,6 @@ class EmailClassifier:
                     'reason': 'sustained_message_without_explicit_request',
                     'category': 'general_contact',
                     'confidence': 0.7
-                }
-            
-            # Check for implicit request
-            if self._has_implicit_request(main_content):
-                category = self._categorize_content(subject + ' ' + main_content)
-                print(f"      ✓ Implicit request detected")
-                print(f"      → Category: {category or 'general'}")
-                return {
-                    'should_reply': True,
-                    'reason': 'implicit_request',
-                    'category': category,
-                    'confidence': 0.75
                 }
             
             print(f"      ✗ No actionable content")
@@ -202,7 +232,7 @@ class EmailClassifier:
             }
 
         # Stage 4: Categorize email
-        category = self._categorize_content(subject + ' ' + main_content)
+        category = self._categorize_content(full_text)
         
         print(f"      ✓ Needs response")
         print(f"      → Category: {category or 'general'}")
@@ -211,7 +241,7 @@ class EmailClassifier:
             'should_reply': True,
             'reason': 'needs_response',
             'category': category,
-            'confidence': 0.8 if category else 0.6
+            'confidence': 0.85 if category else 0.75
         }
 
     # ================ Helper Methods ================
@@ -340,6 +370,8 @@ class EmailClassifier:
     def _contains_request(self, text: str) -> bool:
         """
         Check if text contains a request
+        
+        🔧 FIX: Added booking/reservation patterns
         """
         request_patterns = [
             # Italian
@@ -350,10 +382,17 @@ class EmailClassifier:
             r'\bserve\b', r'\bservono\b', r'\bnecessario\b',
             r'\bvorremmo\b', r'\bgradiremmo\b', r'\bci piacerebbe\b',
             r'\bse possibile\b', r'\bsarebbe possibile\b',
+            # 🔧 NEW: Booking/reservation patterns
+            r'\bprenoter[eèo]i\b', r'\bprenotare\b', r'\bprenotazione\b',
+            r'\briservare\b', r'\briserv[ao]\b', r'\briservo\b',
+            r'\bposti\b.*\bprenotar', r'\bposti\b.*\briservat',
+            r'\biscriv[eèo]i\b', r'\biscrivere\b', r'\biscrizione\b',
             # English
             r'\bwould like\b', r'\bwould appreciate\b', r'\bneed\b',
             r'\bcould you\b', r'\bwould you\b', r'\bcan you\b',
-            r'\bmay i\b', r'\bplease\b'
+            r'\bmay i\b', r'\bplease\b',
+            r'\bbook\b', r'\breserve\b', r'\breservation\b',
+            r'\bsign up\b', r'\bregister\b'
         ]
         
         text_lower = text.lower()
@@ -365,7 +404,9 @@ class EmailClassifier:
 
     def _has_implicit_request(self, text: str) -> bool:
         """
-        Check for implicit requests (tentative language) - MORE PERMISSIVE
+        Check for implicit requests (tentative language)
+        
+        🔧 FIX: Added booking-related implicit patterns
         """
         implicit_patterns = [
             # Italian
@@ -374,6 +415,12 @@ class EmailClassifier:
             r'\binformazioni\b', r'\bdettagli\b',
             r'\bpartecipare\b', r'\biscrivere\b',
             r'\bcontribuire\b', r'\boffrire\b',
+            # 🔧 NEW: Booking/visit/event patterns
+            r'\bprenotazione\b', r'\bprenotare\b',
+            r'\bposti\b', r'\bposto\b',
+            r'\bvisita\b', r'\bvisitare\b',
+            r'\bgita\b', r'\bincontro\b',
+            r'\brevento\b', r'\battività\b',
             # English - EXPANDED
             r'\binterested\b', r'\bpossible\b', r'\bpossibility\b',
             r'\binformation\b', r'\bdetails\b',
@@ -381,7 +428,10 @@ class EmailClassifier:
             r'\bcontribute\b', r'\boffer\b',
             r'\bhonored\b', r'\bappreciate\b',
             r'\bproject\b', r'\bexhibition\b',
-            r'\bcollecting\b', r'\bsend\b'
+            r'\bcollecting\b', r'\bsend\b',
+            r'\bbooking\b', r'\breservation\b',
+            r'\bspots\b', r'\bseats\b', r'\bvisit\b',
+            r'\bevent\b', r'\bactivity\b'
         ]
         
         text_lower = text.lower()
