@@ -5,6 +5,7 @@ Handles reading, sending, and labeling emails with improved HTML handling
 """
 
 import base64
+import html
 import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
@@ -467,11 +468,27 @@ class GmailManager:
             # Create reply message
             message = MIMEMultipart('alternative')
             
-            # Set headers
-            message['To'] = original_message['sender']
-            message['Subject'] = f"Re: {original_message['subject']}"
-            message['In-Reply-To'] = original_message['message_id']
-            message['References'] = original_message['message_id']
+            # Set headers (use sanitized email address only)
+            to_address = (original_message.get('sender_email') or '').strip()
+            if not to_address:
+                # Fallback to parsing from 'sender' header if email missing
+                to_address = self._extract_email_address(original_message.get('sender', ''))
+            # Sanitize to prevent header injection
+            to_address = (to_address or '').replace('\r', ' ').replace('\n', ' ').strip()
+            if not to_address:
+                raise ValueError("Recipient email address missing in original message")
+            message['To'] = to_address
+
+            # Sanitize subject to avoid header injection
+            original_subject = original_message.get('subject', '')
+            sanitized_subject = original_subject.replace('\r', ' ').replace('\n', ' ').strip()
+            message['Subject'] = f"Re: {sanitized_subject}"
+
+            # Only set threading headers if present
+            message_id = (original_message.get('message_id') or '').strip()
+            if message_id:
+                message['In-Reply-To'] = message_id
+                message['References'] = message_id
             
             # Create plain text part
             text_part = MIMEText(reply_text, 'plain', 'utf-8')
@@ -516,9 +533,9 @@ class GmailManager:
         Returns:
             HTML formatted reply
         """
-        # Convert plain text to HTML
-        reply_html = reply_text.replace('\n', '<br>')
-        original_html = original_body.replace('\n', '<br>')
+        # Convert plain text to HTML (escape to prevent HTML injection)
+        reply_html = html.escape(reply_text).replace('\n', '<br>')
+        original_html = html.escape(original_body).replace('\n', '<br>')
         
         html = f'''
         <div style="font-family: Arial, Helvetica, sans-serif; font-size: 20px; color: #351c75;">
