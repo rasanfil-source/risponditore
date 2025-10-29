@@ -49,7 +49,7 @@ MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "4000"))
 
 # ============ NLP Classification Thresholds ============
 SIMPLE_ACK_THRESHOLD = 0.75  # Soglia per classificare come semplice ringraziamento
-NEEDS_REPLY_THRESHOLD = 0.50  # Soglia per necessità di risposta
+NEEDS_REPLY_THRESHOLD = 0.30  # Soglia per necessità di risposta
 
 # ============ Seasonal Periods ============
 SUMMER_START = (6, 29)  # June 29
@@ -122,14 +122,8 @@ IGNORE_KEYWORDS = [
 ACKNOWLEDGMENT_PATTERNS = [
     r'^\s*grazie\s*$',
     r'^\s*grazie mille\s*$',
-    r'^\s*grazie ancora\s*$',
-    r'^\s*grazie di cuore\s*$',
-    r'^\s*vi ringrazio\s*$',
-    r'^\s*ti ringrazio\s*$',
-    r'^\s*la ringrazio\s*$',
     r'^\s*ricevuto\s*$',
-    r'^\s*ok ricevuto\s*$',
-    r'^\s*tutto chiaro\s*$',
+    r'^\s*ok\s*$',
     r'^\s*perfetto\s*$'
 ]
 
