@@ -149,15 +149,19 @@ class EmailClassifier:
         lines = body.split('\n')
         clean_lines = []
         
-        for line in lines:
-            is_quote = False
-            for marker in markers:
-                if re.match(marker, line.strip(), re.IGNORECASE):
-                    is_quote = True
-                    break
-            if is_quote:
-                break
-            clean_lines.append(line)
+for line in lines:
+    stripped = line.strip()
+
+    # 🔹 Salta il saluto iniziale ma NON troncare l'analisi
+    if re.match(r'^(salve|buongiorno|buonasera|ciao)[\s,!.]*$', stripped, re.IGNORECASE):
+        continue
+
+    # 🔹 Interrompi solo se è effettivamente una citazione o risposta precedente
+    if any(re.match(marker, stripped, re.IGNORECASE) for marker in markers):
+        break
+
+    clean_lines.append(line)
+
         
         content = '\n'.join(clean_lines).strip()
         
