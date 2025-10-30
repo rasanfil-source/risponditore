@@ -145,38 +145,50 @@ class EmailClassifier:
             r'^-{3,}.*Original Message.*$',
             r'^_{3,}.*$',
         ]
-        
+
         lines = body.split('\n')
         clean_lines = []
-        
-for line in lines:
-    stripped = line.strip()
 
-    # 🔹 Salta il saluto iniziale ma NON troncare l'analisi
-    if re.match(r'^(salve|buongiorno|buonasera|ciao)[\s,!.]*$', stripped, re.IGNORECASE):
-        continue
+        for line in lines:
+            stripped = line.strip()
 
-    # 🔹 Interrompi solo se è effettivamente una citazione o risposta precedente
-    if any(re.match(marker, stripped, re.IGNORECASE) for marker in markers):
-        break
+            # 🔹 Se la riga è vuota, la manteniamo (aiuta a separare paragrafi)
+            if stripped == '':
+                clean_lines.append(line)
+                continue
 
-    clean_lines.append(line)
+            # 🔹 Salta il saluto iniziale (solo se è esattamente un saluto su quella riga)
+            if re.match(r'^(salve|buongiorno|buonasera|ciao)[\s,!.]*$', stripped, re.IGNORECASE):
+                # Ignora questa riga ma NON interrompere la lettura del resto del messaggio
+                continue
 
-        
+            # 🔹 Se la riga è una citazione (marker), interrompi: il resto è storico
+            if any(re.match(marker, stripped, re.IGNORECASE) for marker in markers):
+                break
+
+            clean_lines.append(line)
+
+        # Assicuriamoci che clean_lines sia una lista
+        if not isinstance(clean_lines, list):
+            clean_lines = []
+
         content = '\n'.join(clean_lines).strip()
-        
-        # Remove signatures
+
+        # 🔹 Rimozione firme comuni
         signature_markers = [
             r'cordiali saluti', r'distinti saluti', r'in fede',
             r'best regards', r'sincerely', r'sent from my iphone', r'inviato da'
         ]
-        
+
         for marker in signature_markers:
-            match = re.search(marker, content, re.IGNORECASE)
-            if match:
-                content = content[:match.start()].strip()
-        
+            m = re.search(marker, content, re.IGNORECASE)
+            if m:
+                content = content[:m.start()].strip()
+                break
+
         return content
+
+
 
     def _is_ultra_simple_acknowledgment(self, text: str) -> bool:
         """
