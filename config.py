@@ -51,9 +51,46 @@ MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "4000"))
 SIMPLE_ACK_THRESHOLD = 0.75  # Soglia per classificare come semplice ringraziamento
 NEEDS_REPLY_THRESHOLD = 0.30  # Soglia per necessità di risposta
 
-# ============ Seasonal Periods ============
-SUMMER_START = (6, 29)  # June 29
-SUMMER_END = (8, 30)    # August 30
+# ============ DYNAMIC SEASONAL PERIODS ============
+def get_summer_period(year: int = None) -> tuple:
+    """
+    Calculate dynamic summer period dates for a given year
+    
+    Summer starts: Monday after June 26
+    Summer ends: Monday after August 31
+    
+    Args:
+        year: Year to calculate for (default: current year)
+        
+    Returns:
+        ((start_month, start_day), (end_month, end_day))
+    """
+    if year is None:
+        year = datetime.now().year
+    
+    # Find Monday after June 26
+    june_26 = datetime(year, 6, 26)
+    days_until_monday = (7 - june_26.weekday()) % 7
+    if days_until_monday == 0:  # June 26 is already Monday
+        summer_start = june_26
+    else:
+        summer_start = june_26 + timedelta(days=days_until_monday)
+    
+    # Find Monday after August 31
+    aug_31 = datetime(year, 8, 31)
+    days_until_monday = (7 - aug_31.weekday()) % 7
+    if days_until_monday == 0:  # August 31 is already Monday
+        summer_end = aug_31
+    else:
+        summer_end = aug_31 + timedelta(days=days_until_monday)
+    
+    return (
+        (summer_start.month, summer_start.day),
+        (summer_end.month, summer_end.day)
+    )
+
+# Calculate for current year at module load
+SUMMER_START, SUMMER_END = get_summer_period()
 
 # ============ Suspension Hours by Day ============
 # 0=Monday, 1=Tuesday, 2=Wednesday, 3=Thursday, 4=Friday, 5=Saturday, 6=Sunday
