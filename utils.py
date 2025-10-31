@@ -1,6 +1,7 @@
 """
 Utility functions for date calculations, filters, and text processing
 Enhanced with intelligent temporal context generation and robust error handling
+🔧 UPDATED: Dynamic summer period calculation
 """
 
 from datetime import datetime, timedelta
@@ -152,7 +153,11 @@ def is_in_special_period(month: int, day: int) -> bool:
 
 def get_current_season(date_obj: datetime = None) -> str:
     """
-    Determine current season (summer/winter)
+    Determine current season (summer/winter) with dynamic summer period
+    
+    🔧 UPDATED: Summer period is calculated dynamically:
+    - Start: Monday after June 26
+    - End: Monday after August 31
     
     Args:
         date_obj: Date to check (default: now)
@@ -165,14 +170,28 @@ def get_current_season(date_obj: datetime = None) -> str:
     
     month = date_obj.month
     day = date_obj.day
+    year = date_obj.year
+    
+    # Get dynamic summer period for this year
+    summer_start, summer_end = config.get_summer_period(year)
     
     # Check if in summer period
-    if month == config.SUMMER_START[0] and day >= config.SUMMER_START[1]:
-        return 'estivo'
-    elif config.SUMMER_START[0] < month < config.SUMMER_END[0]:
-        return 'estivo'
-    elif month == config.SUMMER_END[0] and day <= config.SUMMER_END[1]:
-        return 'estivo'
+    # Convert dates to comparable format (month, day) tuples
+    current_date = (month, day)
+    
+    # Handle case where summer period might span across months
+    if summer_start[0] == summer_end[0]:
+        # Same month (unlikely but handled)
+        if month == summer_start[0] and summer_start[1] <= day <= summer_end[1]:
+            return 'estivo'
+    else:
+        # Different months (normal case: June-September)
+        if month == summer_start[0] and day >= summer_start[1]:
+            return 'estivo'
+        elif summer_start[0] < month < summer_end[0]:
+            return 'estivo'
+        elif month == summer_end[0] and day <= summer_end[1]:
+            return 'estivo'
     
     return 'invernale'
 
@@ -626,3 +645,55 @@ def extract_thread_messages(thread: Dict) -> List[Dict]:
         messages.append(msg_dict)
     
     return messages
+
+
+# ============================================================================
+# TESTING AND DIAGNOSTICS
+# ============================================================================
+
+if __name__ == "__main__":
+    """Test utilities when run directly"""
+    
+    print("=" * 80)
+    print("TESTING DYNAMIC SUMMER PERIOD CALCULATION")
+    print("=" * 80)
+    
+    # Test for multiple years
+    for year in [2024, 2025, 2026]:
+        summer_start, summer_end = config.get_summer_period(year)
+        print(f"\n{year}:")
+        print(f"  Summer starts: {summer_start[1]}/{summer_start[0]}/{year}")
+        print(f"  Summer ends:   {summer_end[1]}/{summer_end[0]}/{year}")
+    
+    print("\n" + "=" * 80)
+    print("TESTING SEASON DETECTION FOR 2025")
+    print("=" * 80)
+    
+    test_dates = [
+        datetime(2025, 6, 25),   # Before summer
+        datetime(2025, 6, 30),   # In summer (Monday after June 26 is June 30)
+        datetime(2025, 7, 15),   # Mid-summer
+        datetime(2025, 8, 15),   # August
+        datetime(2025, 8, 31),   # Last day of August
+        datetime(2025, 9, 1),    # Monday after Aug 31
+        datetime(2025, 9, 2),    # After summer
+        datetime(2025, 10, 15),  # Autumn
+    ]
+    
+    for date in test_dates:
+        season = get_current_season(date)
+        day_name = date.strftime('%A')
+        print(f"{date.strftime('%Y-%m-%d')} ({day_name}): {season}")
+    
+    print("\n" + "=" * 80)
+    print("TESTING TIMEZONE")
+    print("=" * 80)
+    now = datetime.now(ITALIAN_TZ)
+    print(f"Current time in Italy: {now.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    print(f"Current season: {get_current_season()}")
+    
+    special_greeting = get_special_day_greeting()
+    if special_greeting:
+        print(f"Special greeting today: {special_greeting}")
+    else:
+        print("No special greeting today")
