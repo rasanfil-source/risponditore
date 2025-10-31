@@ -137,6 +137,17 @@ FORCE_REPLY_KEYWORDS = [
     'non è giusto',
     'non corretto',
     'non va'
+
+    'stampare',
+    'firmare',
+    'allegato',
+    'liberatoria',
+    'verrà per',
+    'le chiederà',
+    'le chiederò',
+    'domani mattina',
+    'preparare',
+
 ]
 
 
