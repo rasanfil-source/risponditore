@@ -123,6 +123,7 @@ HOLIDAYS = [
 # RENAMED for clarity: can contain both domains and full emails
 IGNORE_SENDERS = [
     'amazon.com',
+    'eventbrite.com',
     'paypal.com',
     'ebay.com',
     'subito.it',
