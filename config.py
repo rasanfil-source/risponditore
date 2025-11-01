@@ -27,7 +27,7 @@ MAX_EMAILS_PER_RUN = int(os.environ.get('MAX_EMAILS_PER_RUN', '10'))
 
 # ============ Gemini Model Configuration ============
 MODEL_NAME = 'gemini-2.0-flash'
-TEMPERATURE = 0.4
+TEMPERATURE = 0.7
 MAX_OUTPUT_TOKENS = 800
 
 # ============ Cache Configuration ============
