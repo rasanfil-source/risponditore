@@ -2,6 +2,7 @@
 Email processor module - Orchestrates the email processing pipeline
 Coordinates filtering, classification, and response generation
 🔧 FIXED: Smart KB truncation, improved error handling, better logging
+✨ NEW: Advanced response validation with ResponseValidator
 """
 
 import logging
@@ -10,6 +11,7 @@ from gmail_service import GmailManager
 from sheets_service import SheetsManager
 from gemini_service import GeminiService
 from nlp_classifier import EmailClassifier
+from response_validator import ResponseValidator  # ✅ NEW IMPORT
 from utils import (
     should_ignore_email,
     apply_replacements,
@@ -24,12 +26,13 @@ logger = logging.getLogger(__name__)
 class EmailProcessor:
     """
     Orchestrates the email processing pipeline:
-    Gmail → Fast Filters → NLP Classification → Knowledge Base → Gemini → Response
+    Gmail → Fast Filters → NLP Classification → Knowledge Base → Gemini → Response Validation → Send
     
     🔧 IMPROVEMENTS:
     - Smart KB truncation preserving structure
     - Better error handling with error labels
     - Improved logging and statistics
+    ✨ NEW: Advanced multi-level response validation
     """
 
     def __init__(self):
@@ -59,6 +62,10 @@ class EmailProcessor:
         
         self.classifier = EmailClassifier()
         logger.info("✓ Classifier initialized")
+        
+        # ✅ NEW: Initialize Response Validator
+        self.validator = ResponseValidator()
+        logger.info("✓ Response validator initialized")
         
         # Load resources
         self._load_resources()
@@ -174,7 +181,8 @@ class EmailProcessor:
                 'replied': 0,
                 'filtered': 0,
                 'errors': 0,
-                'dry_run_count': 0
+                'dry_run_count': 0,
+                'validation_failed': 0  # ✅ NEW
             }
 
             for i, thread in enumerate(threads, 1):
@@ -193,6 +201,9 @@ class EmailProcessor:
                     elif result['status'] == 'filtered':
                         results['filtered'] += 1
                         logger.info(f"⊘ Thread {i}: Filtered ({result.get('reason', 'unknown')})")
+                    elif result['status'] == 'validation_failed':  # ✅ NEW
+                        results['validation_failed'] += 1
+                        logger.warning(f"❌ Thread {i}: Validation failed (score: {result.get('validation_score', 0):.2f})")
                     elif result['status'] == 'skipped':
                         logger.info(f"⊘ Thread {i}: Skipped ({result.get('reason', 'unknown')})")
                     
@@ -219,6 +230,8 @@ class EmailProcessor:
             if results['dry_run_count'] > 0:
                 logger.info(f"   🔴 Dry run: {results['dry_run_count']}")
             logger.info(f"   ⊘ Filtered: {results['filtered']}")
+            if results['validation_failed'] > 0:  # ✅ NEW
+                logger.info(f"   ❌ Validation failed: {results['validation_failed']}")
             logger.info(f"   ❌ Errors: {results['errors']}")
             logger.info(f"{'='*60}\n")
 
@@ -227,6 +240,7 @@ class EmailProcessor:
                 'processed': results['processed'],
                 'replied': results['replied'],
                 'filtered': results['filtered'],
+                'validation_failed': results['validation_failed'],  # ✅ NEW
                 'errors': results['errors'],
                 'dry_run': config.DRY_RUN,
                 'dry_run_count': results['dry_run_count']
@@ -248,7 +262,8 @@ class EmailProcessor:
         2. Fast domain/keyword filters
         3. NLP classification
         4. Gemini response generation
-        5. Post-processing and sending
+        5. Advanced response validation  ✅ NEW
+        6. Post-processing and sending
 
         Args:
             thread: Gmail thread object
@@ -353,49 +368,115 @@ class EmailProcessor:
                 category=classification.get('category')
             )
 
-            # === STAGE 5: Post-processing and Sending ===
-            if ai_response and 'NO_REPLY' not in ai_response.upper():
-                logger.info(f"   ✏️  Stage 5: Post-processing...")
-                
-                # Apply text replacements
-                if self.replacements:
-                    ai_response = apply_replacements(ai_response, self.replacements)
-                    logger.info(f"      Applied {len(self.replacements)} replacement rules")
-
-                # Quality checks
-                logger.info(f"   ✓ Stage 6: Validation...")
-                if not self._validate_response(ai_response, message_details):
-                    logger.warning(f"   ⊘ Response failed validation")
-                    self.gmail.add_label_to_thread(thread['id'], label_name)
-                    return {'status': 'filtered', 'reason': 'invalid_response'}
-
-                # DRY-RUN mode check
-                if config.DRY_RUN:
-                    logger.warning(f"   🔴 DRY_RUN MODE: Skipping email send")
-                    logger.info(f"   📝 Would have sent response ({len(ai_response)} chars):")
-                    logger.info(f"      {ai_response[:200]}...")
-                    # Still mark as processed in dry-run
-                    self.gmail.add_label_to_thread(thread['id'], label_name)
-                    return {'status': 'replied', 'dry_run': True}
-                
-                # Send reply (only if not DRY_RUN)
-                logger.info(f"   📤 Sending reply...")
-                self.gmail.send_reply(message_details, ai_response)
-                logger.info(f"   ✓ Reply sent successfully")
-
-                # Mark as processed
+            # Check if response was generated
+            if not ai_response:
+                logger.warning(f"   ❌ No response generated by Gemini")
+                self.gmail.add_label_to_thread(thread['id'], f"{config.ERROR_LABEL_NAME}_NO_RESPONSE")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
-                return {'status': 'replied'}
+                return {'status': 'error', 'reason': 'no_response_generated'}
 
-            elif ai_response and 'NO_REPLY' in ai_response.upper():
+            # Check for NO_REPLY directive
+            if 'NO_REPLY' in ai_response.upper():
                 logger.info(f"   ⊘ Gemini decided NO_REPLY")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'filtered', 'reason': 'gemini_no_reply'}
 
-            else:
-                logger.error(f"   ❌ Empty response from Gemini")
+            # ✅✅✅ === STAGE 5: ADVANCED RESPONSE VALIDATION === ✅✅✅
+            logger.info(f"   🔍 Stage 5: Advanced response validation...")
+            
+            # Detect language for validation
+            detected_language = self.gemini._detect_email_language(
+            message_details['body'], 
+            message_details['subject']
+)
+            
+            # Perform comprehensive validation
+            validation_result = self.validator.validate_response(
+                response=ai_response,
+                detected_language=detected_language,
+                knowledge_base=final_knowledge_base,
+                email_content=message_details['body'],
+                email_subject=message_details['subject']
+            )
+            
+            # Log validation details
+            logger.info(f"      Validation score: {validation_result.score:.2f}")
+            logger.info(f"      Errors: {len(validation_result.errors)}")
+            logger.info(f"      Warnings: {len(validation_result.warnings)}")
+            
+            # Check if validation passed
+            if not validation_result.is_valid:
+                logger.warning(f"   ❌ Response FAILED validation!")
+                logger.warning(f"      Overall score: {validation_result.score:.2f} (threshold: {self.validator.MIN_VALID_SCORE})")
+                
+                # Log errors
+                for i, error in enumerate(validation_result.errors, 1):
+                    logger.warning(f"      Error {i}: {error}")
+                
+                # Log first 3 warnings
+                for i, warning in enumerate(validation_result.warnings[:3], 1):
+                    logger.warning(f"      Warning {i}: {warning}")
+                
+                if len(validation_result.warnings) > 3:
+                    logger.warning(f"      ... and {len(validation_result.warnings) - 3} more warnings")
+                
+                # Add specific error label
+                error_label = f"{config.ERROR_LABEL_NAME}_VALIDATION_FAILED"
+                self.gmail.add_label_to_thread(thread['id'], error_label)
                 self.gmail.add_label_to_thread(thread['id'], label_name)
-                return {'status': 'error', 'reason': 'empty_response'}
+                
+                return {
+                    'status': 'validation_failed',
+                    'reason': 'response_quality_too_low',
+                    'validation_score': validation_result.score,
+                    'errors': validation_result.errors[:3],  # First 3 errors
+                    'warnings': validation_result.warnings[:3]  # First 3 warnings
+                }
+            
+            # Validation passed!
+            logger.info(f"   ✓ Validation PASSED (score: {validation_result.score:.2f})")
+            
+            if validation_result.warnings:
+                logger.info(f"      ⚠️  {len(validation_result.warnings)} non-blocking warning(s):")
+                for i, warning in enumerate(validation_result.warnings[:3], 1):
+                    logger.info(f"         {i}. {warning}")
+                if len(validation_result.warnings) > 3:
+                    logger.info(f"         ... and {len(validation_result.warnings) - 3} more")
+
+            # === STAGE 6: Post-processing and Sending ===
+            logger.info(f"   ✏️  Stage 6: Post-processing...")
+            
+            # Apply text replacements
+            if self.replacements:
+                ai_response = apply_replacements(ai_response, self.replacements)
+                logger.info(f"      Applied {len(self.replacements)} replacement rules")
+
+            # DRY-RUN mode check
+            if config.DRY_RUN:
+                logger.warning(f"   🔴 DRY_RUN MODE: Skipping email send")
+                logger.info(f"   📝 Would have sent response ({len(ai_response)} chars):")
+                logger.info(f"      {ai_response[:200]}...")
+                # Still mark as processed in dry-run
+                self.gmail.add_label_to_thread(thread['id'], label_name)
+                return {
+                    'status': 'replied',
+                    'dry_run': True,
+                    'validation_score': validation_result.score
+                }
+            
+            # Send reply (only if not DRY_RUN)
+            logger.info(f"   📤 Sending reply...")
+            self.gmail.send_reply(message_details, ai_response)
+            logger.info(f"   ✓ Reply sent successfully")
+
+            # Mark as processed
+            self.gmail.add_label_to_thread(thread['id'], label_name)
+            
+            return {
+                'status': 'replied',
+                'validation_score': validation_result.score,
+                'warnings_count': len(validation_result.warnings)
+            }
 
         except Exception as e:
             logger.error(f"   ❌ Error in thread processing: {e}", exc_info=True)
@@ -468,7 +549,10 @@ class EmailProcessor:
 
     def _validate_response(self, response: str, message_details: Dict) -> bool:
         """
-        Validate AI response quality
+        DEPRECATED: Legacy validation method (kept for compatibility)
+        
+        This method is now replaced by ResponseValidator in Stage 5.
+        Keeping for backwards compatibility but no longer used in pipeline.
         
         Args:
             response: Generated response text

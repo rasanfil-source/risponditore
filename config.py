@@ -22,12 +22,12 @@ PUBSUB_SUBSCRIPTION = os.environ.get('PUBSUB_SUBSCRIPTION', 'gmail-notifications
 
 # ============ Gmail Configuration ============
 LABEL_NAME = os.environ.get('LABEL_NAME', 'IA')
-ERROR_LABEL_NAME = os.environ.get('ERROR_LABEL_NAME', 'IA-Error')  # NEW: Error label
+ERROR_LABEL_NAME = os.environ.get('ERROR_LABEL_NAME', 'IA-Error')  # Error label
 MAX_EMAILS_PER_RUN = int(os.environ.get('MAX_EMAILS_PER_RUN', '10'))
 
 # ============ Gemini Model Configuration ============
 MODEL_NAME = 'gemini-2.0-flash'
-TEMPERATURE = 0.7
+TEMPERATURE = 0.35
 MAX_OUTPUT_TOKENS = 800
 
 # ============ Cache Configuration ============
@@ -46,6 +46,15 @@ LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO").upper()
 # Prompt size limits (characters)
 MAX_KNOWLEDGE_BASE_CHARS = int(os.getenv("MAX_KNOWLEDGE_BASE_CHARS", "999999"))
 MAX_CONVERSATION_CHARS = int(os.getenv("MAX_CONVERSATION_CHARS", "4000"))
+
+# ============ Response Validation Configuration ============
+# ✅ NEW: Response Validator settings
+VALIDATION_ENABLED = os.environ.get('VALIDATION_ENABLED', 'true').lower() == 'true'
+VALIDATION_MIN_SCORE = float(os.environ.get('VALIDATION_MIN_SCORE', '0.6'))
+VALIDATION_STRICT_MODE = os.environ.get('VALIDATION_STRICT_MODE', 'false').lower() == 'true'
+
+# Log validation results to Sheets (optional, for analytics)
+LOG_VALIDATION_TO_SHEETS = os.environ.get('LOG_VALIDATION_TO_SHEETS', 'false').lower() == 'true'
 
 # ============ NLP Classification Thresholds ============
 SIMPLE_ACK_THRESHOLD = 0.75  # Soglia per classificare come semplice ringraziamento
@@ -174,8 +183,7 @@ FORCE_REPLY_KEYWORDS = [
     'non funziona',
     'non è giusto',
     'non corretto',
-    'non va'
-
+    'non va',
     'stampare',
     'firmare',
     'allegato',
@@ -185,7 +193,6 @@ FORCE_REPLY_KEYWORDS = [
     'le chiederò',
     'domani mattina',
     'preparare',
-
 ]
 
 
@@ -248,6 +255,13 @@ def validate_config():
     if DRY_RUN:
         warnings.append("⚠️  DRY_RUN MODE ACTIVE - Emails will NOT be sent!")
     
+    # ✅ NEW: Validation warnings
+    if not VALIDATION_ENABLED:
+        warnings.append("⚠️  Response validation is DISABLED - Quality checks will be skipped!")
+    
+    if VALIDATION_STRICT_MODE:
+        warnings.append(f"ℹ️  Validation strict mode enabled (min score: 0.8 instead of {VALIDATION_MIN_SCORE})")
+    
     # === STAMPA RISULTATI ===
     
     if errors:
@@ -282,6 +296,10 @@ def validate_config():
     print(f"   Auth per-invocation: {'YES' if VERIFY_AUTH_ON_EACH_INVOCATION else 'NO (cold start only)'}")
     print(f"   Max KB size: {MAX_KNOWLEDGE_BASE_CHARS} chars")
     print(f"   Max conversation: {MAX_CONVERSATION_CHARS} chars")
+    # ✅ NEW: Validation config output
+    print(f"   Validation enabled: {'YES' if VALIDATION_ENABLED else 'NO ⚠️'}")
+    print(f"   Validation min score: {VALIDATION_MIN_SCORE}")
+    print(f"   Validation strict mode: {'YES' if VALIDATION_STRICT_MODE else 'NO'}")
     print()
 
 
@@ -313,6 +331,11 @@ def get_config_summary() -> dict:
         'verify_auth_per_invocation': VERIFY_AUTH_ON_EACH_INVOCATION,
         'max_kb_chars': MAX_KNOWLEDGE_BASE_CHARS,
         'max_conversation_chars': MAX_CONVERSATION_CHARS,
+        # ✅ NEW: Validation config in summary
+        'validation_enabled': VALIDATION_ENABLED,
+        'validation_min_score': VALIDATION_MIN_SCORE,
+        'validation_strict_mode': VALIDATION_STRICT_MODE,
+        'log_validation_to_sheets': LOG_VALIDATION_TO_SHEETS,
     }
 
 

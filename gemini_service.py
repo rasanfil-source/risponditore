@@ -685,39 +685,41 @@ Conversazione:
         """Check if text is only an acknowledgement"""
         if not text:
             return False
-
+        
         import re
-
-        cleaned = text.lower().replace(' ', '').strip()
-        cleaned = re.sub(r'[^\w\sàèéìòù?]', '', cleaned)
-
+        cleaned = text.lower().replace(',', '').strip()
+        cleaned = re.sub(r'\?', '', cleaned)
+        words_in_text = cleaned.split()
+        
+        # Ultra-simple acknowledgments only
         ack_patterns = [
-    r'^grazie$',
-    r'^graziemille$',
-    r'^grazieancora$',
-    r'^graziedicuore$',
-    r'^viringrazio$',
-    r'^tiringrazio$',
-    r'^laringrazio$',
-    r'^ricevuto$',
-    r'^okricevuto$',
-    r'^tuttochiaro$',
-    r'^perfetto$'
-]
-
+            r'^grazie$',
+            r'^grazie\s*mille$',
+            r'^ricevuto$',
+            r'^ok\s*ricevuto$',
+            r'^perfetto$',
+            r'^ok$'
+        ]
+        
         for pattern in ack_patterns:
             if re.match(pattern, cleaned):
                 return True
-
-        # Check if contains thanks/received with a question
-        if ('grazie' in cleaned or 'ricevuto' in cleaned):
-            if '?' in cleaned or any(word in cleaned for word in
-                ['quando', 'come', 'dove', 'cosa', 'che', 'chi', 'perché',
-                 'posso', 'potrei', 'vorrei', 'sapere', 'chiedo']):
-                return False
+        
+        # 🔴 PRIORITÀ: Se ha QUALSIASI parola di richiesta → RISPONDI!
+        request_words = ['vorrei', 'sapere', 'informazioni', 'quando', 'come', 'dove',
+                        'orari', 'orario', 'costo', 'prezzo', 'quanto']
+        
+        if any(word in words_in_text for word in request_words):
+            return False  # ← HA RICHIESTA, RISPONDI!
+        
+        # Solo SE ha "grazie" E NON ha richieste → è acknowledgment
+        if 'grazie' in cleaned and len(words_in_text) <= 3:
             return True
-
+        
         return False
+
+    
+
 
     # ========================================================================
     # HEALTH CHECK AND DIAGNOSTICS
