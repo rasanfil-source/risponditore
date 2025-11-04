@@ -1,0 +1,844 @@
+"""
+Gemini API service module for AI responses
+Handles generating responses and summarizing conversations
+🔧 FIXED: Better retry logic, improved timeout handling, validation
+"""
+
+import requests
+import json
+import time
+from typing import Optional, Dict
+import config
+from utils import get_current_season, get_special_day_greeting
+from datetime import datetime
+from zoneinfo import ZoneInfo
+import logging
+from prompt_engine import PromptEngine, PromptContext  # ← NUOVO
+from territory_validator import TerritoryValidator
+
+
+logger = logging.getLogger(__name__)
+
+# Italian timezone constant
+ITALIAN_TZ = ZoneInfo("Europe/Rome")
+
+
+# ============================================================================
+# RETRY DECORATOR WITH EXPONENTIAL BACKOFF
+# ============================================================================
+
+def retry_on_failure(max_retries=3, delay=2, backoff_factor=2):
+    """
+    Decorator for automatic retry with exponential backoff
+
+    Args:
+        max_retries: Maximum number of attempts
+        delay: Base delay in seconds
+        backoff_factor: Multiplier for exponential backoff
+    """
+    def decorator(func):
+        def wrapper(*args, **kwargs):
+            for attempt in range(max_retries):
+                try:
+                    return func(*args, **kwargs)
+                except requests.exceptions.Timeout as e:
+                    if attempt < max_retries - 1:
+                        wait_time = delay * (backoff_factor ** attempt)
+                        logger.warning(f"⚠️  Gemini API timeout (attempt {attempt + 1}/{max_retries})")
+                        logger.info(f"   Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ All {max_retries} Gemini API attempts timed out")
+                        raise
+                except requests.exceptions.RequestException as e:
+                    if attempt < max_retries - 1:
+                        wait_time = delay * (backoff_factor ** attempt)
+                        logger.warning(f"⚠️  Gemini API network error (attempt {attempt + 1}/{max_retries}): {e}")
+                        logger.info(f"   Retrying in {wait_time}s...")
+                        time.sleep(wait_time)
+                    else:
+                        logger.error(f"❌ All {max_retries} Gemini API attempts failed")
+                        raise
+                except Exception as e:
+                    # For non-network errors, don't retry
+                    logger.error(f"❌ Gemini API error (no retry): {e}")
+                    raise
+        return wrapper
+    return decorator
+
+
+# ============================================================================
+# GEMINISERVICE CLASS
+# ============================================================================
+
+class GeminiService:
+    """
+    Service for Gemini AI API interactions
+
+    🔧 IMPROVEMENTS:
+    - Better retry logic with exponential backoff
+    - Improved timeout handling
+    - Response validation
+    - Better error messages
+    """
+
+    def __init__(self):
+        """Initialize Gemini service with API configuration"""
+        self.api_key = config.GEMINI_API_KEY
+        self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.MODEL_NAME}:generateContent"
+
+        # Validate API key
+        if not self.api_key:
+            raise ValueError(
+                "GEMINI_API_KEY not configured in environment variables. "
+                "Please set GEMINI_API_KEY before running."
+            )
+
+        if len(self.api_key) < 20:
+            logger.warning("⚠️  GEMINI_API_KEY seems too short, please verify")
+
+        # Initialize PromptEngine
+        self.prompt_engine = PromptEngine()  # ← NUOVO
+        self.territory_validator = TerritoryValidator()
+
+
+        logger.info(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
+
+    def _detect_email_language(self, email_content: str, email_subject: str) -> str:
+        """
+        Detect the language of the email
+
+        Args:
+            email_content: Email body text
+            email_subject: Email subject
+
+        Returns:
+            'it' for Italian, 'en' for English, 'es' for Spanish
+        """
+        text = (email_subject + ' ' + email_content).lower()
+
+        # English indicators
+        english_keywords = ['the', 'and', 'would', 'could', 'please', 'thank you',
+                           'dear', 'we are', 'project', 'information', 'your', 'with',
+                           'from', 'our', 'have', 'this', 'that', 'honored', 'exhibition',
+                           'request', 'contribute', 'peace', 'students']
+        english_score = sum(1 for kw in english_keywords if f' {kw} ' in f' {text} ')
+
+        # Spanish indicators
+        spanish_keywords = ['el', 'la', 'de', 'que', 'por favor', 'gracias',
+                           'querido', 'somos', 'proyecto', 'información', 'con', 'para',
+                           'su', 'este', 'esta']
+        spanish_score = sum(1 for kw in spanish_keywords if f' {kw} ' in f' {text} ')
+
+        # Italian indicators
+        italian_keywords = ['il', 'la', 'di', 'che', 'per favore', 'grazie',
+                           'gentile', 'siamo', 'progetto', 'informazioni', 'con', 'per',
+                           'vorrei', 'quando', 'come']
+        italian_score = sum(1 for kw in italian_keywords if f' {kw} ' in f' {text} ')
+
+        # Determine language
+        scores = {'it': italian_score, 'en': english_score, 'es': spanish_score}
+        detected_lang = max(scores, key=scores.get)
+
+        logger.debug(f"🌍 Language detection - IT={italian_score}, EN={english_score}, ES={spanish_score}")
+
+        # If score is too low, default to Italian
+        if scores[detected_lang] < 2:
+            logger.debug(f"   Low confidence, defaulting to Italian")
+            return 'it'
+
+        logger.info(f"   Detected: {detected_lang.upper()} (score: {scores[detected_lang]})")
+        return detected_lang
+
+    def _get_adaptive_greeting(self, now: datetime, sender_name: str, language: str = 'it') -> tuple:
+        """
+        Get greeting and closing adapted to language and time
+
+        Args:
+            now: Current datetime
+            sender_name: Name of the sender
+            language: Detected language code
+
+        Returns:
+            (greeting, closing) tuple
+        """
+        special_greeting = get_special_day_greeting(now)
+        hour = now.hour
+        day = now.weekday()
+
+        # Italian greetings
+        if language == 'it':
+            if special_greeting:
+                greeting = special_greeting
+            elif day == 6:
+                greeting = 'Buona domenica.'
+            elif 6 <= hour < 13:
+                greeting = 'Buongiorno.'
+            elif 13 <= hour < 19:
+                greeting = 'Buon pomeriggio.'
+            elif 19 <= hour <= 23:
+                greeting = 'Buonasera.'
+            else:
+                greeting = f'Gentile {sender_name},'
+
+            closing = 'Cordiali saluti,'
+
+        # English greetings
+        elif language == 'en':
+            if special_greeting:
+                # Translate special greetings
+                special_map = {
+                    'Buon Natale!': 'Merry Christmas!',
+                    'Buona Pasqua!': 'Happy Easter!',
+                    'Buon Capodanno!': 'Happy New Year!',
+                    'Buona Epifania!': 'Happy Epiphany!',
+                    'Auguri per oggi!': 'Best wishes for today!',
+                    'Buona festa di Ognissanti!': 'Happy All Saints\' Day!',
+                    'Buona Immacolata!': 'Happy Immaculate Conception!',
+                }
+                greeting = special_map.get(special_greeting, 'Greetings,')
+            elif day == 6:
+                greeting = 'Happy Sunday,'
+            elif 6 <= hour < 12:
+                greeting = 'Good morning,'
+            elif 12 <= hour < 18:
+                greeting = 'Good afternoon,'
+            elif 18 <= hour <= 23:
+                greeting = 'Good evening,'
+            else:
+                greeting = f'Dear {sender_name},'
+
+            closing = 'Kind regards,'
+
+        # Spanish greetings
+        elif language == 'es':
+            if special_greeting:
+                special_map = {
+                    'Buon Natale!': '¡Feliz Navidad!',
+                    'Buona Pasqua!': '¡Feliz Pascua!',
+                    'Buon Capodanno!': '¡Feliz Año Nuevo!',
+                    'Auguri per oggi!': '¡Felicidades por hoy!',
+                }
+                greeting = special_map.get(special_greeting, 'Saludos,')
+            elif day == 6:
+                greeting = 'Feliz domingo,'
+            elif 6 <= hour < 13:
+                greeting = 'Buenos días,'
+            elif 13 <= hour < 20:
+                greeting = 'Buenas tardes,'
+            elif 20 <= hour <= 23:
+                greeting = 'Buenas noches,'
+            else:
+                greeting = f'Estimado/a {sender_name},'
+
+            closing = 'Cordiales saludos,'
+
+        else:
+            # Fallback to Italian
+            greeting = f'Gentile {sender_name},'
+            closing = 'Cordiali saluti,'
+
+        return greeting, closing
+
+    @retry_on_failure(max_retries=3, delay=2, backoff_factor=2)
+    def generate_response(
+        self,
+        email_content: str,
+        email_subject: str,
+        knowledge_base: str,
+        sender_name: str,
+        sender_email: str,
+        conversation_history: str = "",
+        category: Optional[str] = None
+    ) -> Optional[str]:
+        """
+        Generate AI response for an email with retry logic
+
+        Args:
+            email_content: Content of the email
+            email_subject: Subject of the email
+            knowledge_base: Knowledge base string
+            sender_name: Name of the sender
+            sender_email: Email address of sender
+            conversation_history: Previous conversation history
+            category: Email category from classifier (optional)
+
+        Returns:
+            AI generated response or None if error
+        """
+        # Check if it's just an acknowledgment (backup check)
+        main_reply = self._extract_main_reply(email_content)
+        if self._is_only_acknowledgement(main_reply):
+            logger.info("   Gemini: Detected acknowledgment, returning NO_REPLY")
+            return "NO_REPLY"
+
+        # Check for simple thank you patterns (backup check)
+        normalized = email_content.strip().lower()
+        thank_you_patterns = [
+            r'^grazie\.?$',
+            r'^grazie mille\.?$',
+            r'^grazie di tutto\.?$',
+            r'^ricevuto\.?$',
+            r'^ok ricevuto\.?$',
+            r'^tutto chiaro\.?$',
+            r'^perfetto\.?$'
+        ]
+
+        import re
+        for pattern in thank_you_patterns:
+            if re.match(pattern, normalized):
+                logger.info("   Gemini: Matched thank-you pattern, returning NO_REPLY")
+                return "NO_REPLY"
+
+        # Detect language and prepare context
+        now = datetime.now(ITALIAN_TZ)
+        detected_language = self._detect_email_language(email_content, email_subject)
+        salutation, closing = self._get_adaptive_greeting(now, sender_name, detected_language)
+        current_season = get_current_season(now)
+
+        # Build context
+        context = PromptContext(
+            email_content=email_content,
+            email_subject=email_subject,
+            sender_name=sender_name,
+            sender_email=sender_email,
+            knowledge_base=knowledge_base,
+            conversation_history=conversation_history,
+            category=category,
+            detected_language=detected_language,
+            current_season=current_season,
+            now=now,
+            salutation=salutation,
+            closing=closing
+        )
+
+        # ═══════════════════════════════════════════════════════════════
+        # VERIFICA AUTOMATICA TERRITORIO PARROCCHIALE
+        # ═══════════════════════════════════════════════════════════════
+        territory_info = self.territory_validator.analyze_email_for_address(
+            email_content, email_subject
+        )
+
+        if territory_info['address_found']:
+            verification = territory_info['verification']
+            logger.info(f"🏘️ Territory check: {verification['reason']}")
+            
+            territory_context = f"""
+{'='*70}
+🎯 VERIFICA TERRITORIO AUTOMATICA (INFORMAZIONE VERIFICATA - PRIORITÀ ASSOLUTA)
+{'='*70}
+Indirizzo rilevato nell'email: {territory_info['street']} n. {territory_info['civic']}
+
+Risultato verifica: {'✅ RIENTRA NEL TERRITORIO PARROCCHIALE' if verification['in_parish'] else '❌ NON RIENTRA NEL TERRITORIO PARROCCHIALE'}
+
+Dettaglio: {verification['reason']}
+
+⚠️ ISTRUZIONE VINCOLANTE:
+Usa ESATTAMENTE queste informazioni verificate programmaticamente per rispondere 
+alla domanda sul territorio. NON fare supposizioni, NON interpretare, 
+usa SOLO il risultato di questa verifica automatica.
+{'='*70}
+
+"""
+            knowledge_base = territory_context + knowledge_base
+            logger.debug(f"   📋 Territory context added to prompt ({len(territory_context)} chars)")
+        # ═══════════════════════════════════════════════════════════════
+
+
+
+
+        # Generate optimized prompt usando parametri individuali
+        prompt = self.prompt_engine.build_prompt(
+        email_content=email_content,
+        email_subject=email_subject,
+        knowledge_base=knowledge_base,
+        sender_name=sender_name,
+        sender_email=sender_email,
+        conversation_history=conversation_history,
+        category=category,
+        detected_language=detected_language,
+        current_season=current_season,
+        now=now,
+        salutation=salutation,
+        closing=closing
+    )
+
+        # Validate prompt size
+        if len(prompt) > 100000:
+            logger.warning(f"⚠️  Prompt very large ({len(prompt)} chars), may cause issues")
+
+        # Call Gemini API with timeout
+        try:
+            logger.info(f"🤖 Calling Gemini API for: {sender_email}")
+            logger.debug(f"   Prompt size: {len(prompt)} chars")
+
+            response = requests.post(
+                f"{self.base_url}?key={self.api_key}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": config.TEMPERATURE,
+                        "maxOutputTokens": config.MAX_OUTPUT_TOKENS
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+
+                # Validate response structure
+                if not result.get("candidates"):
+                    logger.error(f"❌ Invalid Gemini response: no candidates")
+                    logger.debug(f"   Response: {result}")
+                    return None
+
+                if not result["candidates"][0].get("content"):
+                    logger.error(f"❌ Invalid Gemini response: no content in candidate")
+                    logger.debug(f"   Response: {result}")
+                    return None
+
+                generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
+
+                # Validate generated text
+                if not generated_text or len(generated_text.strip()) == 0:
+                    logger.error(f"❌ Gemini returned empty response")
+                    return None
+
+                logger.info(f"✓ Gemini response generated ({len(generated_text)} chars)")
+                return generated_text
+            else:
+                logger.error(f"❌ Gemini API error: {response.status_code}")
+                logger.error(f"   Response: {response.text[:500]}")
+                return None
+
+        except requests.exceptions.Timeout:
+            logger.error(f"⏱️  Gemini API timeout after 30s")
+            raise  # Let retry decorator handle it
+        except Exception as e:
+            logger.error(f"❌ Error calling Gemini API: {e}")
+            raise
+
+    @retry_on_failure(max_retries=2, delay=1, backoff_factor=2)
+    def summarize_conversation(self, conversation_history: str) -> str:
+        """
+        Summarize a long conversation history with retry logic
+
+        Args:
+            conversation_history: Full conversation history
+
+        Returns:
+            Summarized conversation or original if short/error
+        """
+        # If history is short, no need to summarize
+        word_count = len(conversation_history.split())
+        if word_count < 60:
+            return conversation_history
+
+        prompt = f"""
+Sei un assistente di segreteria. Riassumi la seguente conversazione email
+in massimo 5 frasi, mantenendo SOLO:
+- richieste specifiche dell'utente
+- risposte già fornite dalla segreteria
+- eventuali follow-up importanti
+NON includere ringraziamenti, formule di cortesia, firme o dettagli irrilevanti.
+
+Conversazione:
+{conversation_history}
+"""
+
+        try:
+            logger.info(f"📝 Summarizing conversation ({word_count} words)...")
+
+            response = requests.post(
+                f"{self.base_url}?key={self.api_key}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "maxOutputTokens": 150
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=20  # 20 seconds timeout for summarization
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("candidates") and result["candidates"][0].get("content"):
+                    summary = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+                    # Validate summary
+                    if len(summary.split()) < 15 or "non ho abbastanza informazioni" in summary.lower():
+                        logger.warning("⚠️  Summary too short or vague, using full history")
+                        return conversation_history
+
+                    logger.info(f"✓ Conversation summarized ({len(summary.split())} words)")
+                    return summary
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"⏱️  Summary timeout, using full history")
+            return conversation_history
+        except Exception as e:
+            logger.warning(f"⚠️  Error summarizing conversation: {e}, using full history")
+            return conversation_history
+
+        return conversation_history
+
+    def _build_prompt(
+        self,
+        email_content: str,
+        email_subject: str,
+        knowledge_base: str,
+        sender_name: str,
+        sender_email: str,
+        conversation_history: str,
+        category: Optional[str] = None
+    ) -> str:
+        """
+        Build the prompt for Gemini API
+
+        Returns:
+            Complete prompt string
+        """
+        # Use Italian timezone
+        now = datetime.now(ITALIAN_TZ)
+
+        # Detect language
+        detected_language = self._detect_email_language(email_content, email_subject)
+
+        # Get adaptive greeting and closing
+        salutation, closing_phrase = self._get_adaptive_greeting(now, sender_name, detected_language)
+
+        # Get current season
+        current_season = get_current_season(now)
+        seasonal_note = (
+            'IMPORTANTE: Siamo attualmente nel periodo ESTIVO. Utilizza SOLO gli orari estivi nelle risposte.'
+            if current_season == 'estivo'
+            else 'IMPORTANTE: Siamo attualmente nel periodo INVERNALE. Utilizza SOLO gli orari invernali nelle risposte.'
+        )
+
+        # Language instruction based on detected language
+        if detected_language == 'en':
+            language_instruction = (
+                "🚨 CRITICAL PRIORITY INSTRUCTION 🚨\n"
+                "This email is written in ENGLISH.\n"
+                "You MUST respond ENTIRELY and EXCLUSIVELY in English.\n"
+                "Do NOT use ANY Italian words or phrases.\n"
+                "Translate ALL parish information to English.\n"
+                "This rule has ABSOLUTE PRIORITY over all other instructions."
+            )
+        elif detected_language == 'es':
+            language_instruction = (
+                "🚨 INSTRUCCIÓN CRÍTICA DE MÁXIMA PRIORIDAD 🚨\n"
+                "Este correo está escrito en ESPAÑOL.\n"
+                "Debes responder COMPLETA y EXCLUSIVAMENTE en español.\n"
+                "NO uses NINGUNA palabra o frase en italiano.\n"
+                "Traduce TODA la información parroquial al español.\n"
+                "Esta regla tiene PRIORIDAD ABSOLUTA sobre todas las demás instrucciones."
+            )
+        else:
+            language_instruction = (
+                "Rispondi SEMPRE nella stessa lingua in cui è scritta l'email ricevuta. "
+                "Se l'email è in inglese, rispondi in inglese. "
+                "Se è in spagnolo, rispondi in spagnolo. "
+                "Non tradurre e non mischiare lingue."
+            )
+
+        # Build prompt parts
+        prompt_parts = [
+            "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.",
+            "Rispondi alle email in modo conciso, chiaro e solo con le informazioni esplicitamente richieste.",
+            "",
+            "="*60,
+            language_instruction,
+            "="*60,
+            "",
+            "**INFORMAZIONI DI RIFERIMENTO DELLA PARROCCHIA:**",
+            knowledge_base,
+            "",
+            "**GESTIONE ORARI STAGIONALI:**",
+            seasonal_note,
+            "Non mostrare mai contemporaneamente sia gli orari estivi che quelli invernali. Mostra SOLO quelli del periodo corrente.",
+            "",
+        ]
+
+        # Add category hint if available
+        if category:
+            category_hints = {
+                'appointment': "NOTA: Questa email riguarda la richiesta di un appuntamento. Fornisci informazioni su come fissare appuntamenti e gli orari disponibili.",
+                'information': "NOTA: Questa email richiede informazioni generali. Rispondi in modo chiaro e completo basandoti sulla knowledge base.",
+                'sacrament': "NOTA: Questa email riguarda i sacramenti. Fornisci informazioni dettagliate sui requisiti e le procedure.",
+                'collaboration': "NOTA: Questa email propone collaborazione o volontariato. Ringrazia e spiega come procedere.",
+                'complaint': "NOTA: Questa email potrebbe contenere un reclamo. Rispondi con empatia e professionalità."
+            }
+
+            if category in category_hints:
+                prompt_parts.extend([
+                    "**CATEGORIA EMAIL IDENTIFICATA:**",
+                    category_hints[category],
+                    ""
+                ])
+
+        # Add conversation history if present
+        if conversation_history:
+            prompt_parts.extend([
+                "**CRONOLOGIA DELLA CONVERSAZIONE (CONTESTO):**",
+                "Di seguito i messaggi precedenti. Analizzali per capire il contesto ed evitare di ripetere informazioni già date.",
+                '"""',
+                conversation_history,
+                '"""',
+                "",
+            ])
+
+        # Add current email
+        prompt_parts.extend([
+            "**ULTIMA EMAIL RICEVUTA (A CUI RISPONDERE):**",
+            f"Da: {sender_email} (Nome di fallback: {sender_name})",
+            f"Oggetto: {email_subject}",
+            f"🌍 LINGUA RILEVATA: {detected_language.upper()}",
+            "Contenuto:",
+            '"""',
+            email_content,
+            '"""',
+            "",
+"⚠️ **REGOLA CRITICA - NO_REPLY (LEGGI ATTENTAMENTE E APPLICA CON RIGORE):**",
+            "",
+            "Devi rispondere ESATTAMENTE e SOLAMENTE con la parola \"NO_REPLY\" (senza altro testo) se l'email ricade in UNA QUALSIASI di queste categorie:",
+            "",
+            "📧 CATEGORIE DA IGNORARE SEMPRE:",
+            "1. Newsletter, comunicazioni promozionali, pubblicità",
+            "2. Email automatiche da servizi online (Amazon, PayPal, eBay, Subito.it, tracking pacchi, etc.)",
+            "3. Notifiche di pagamento, bollette, ricevute, bonifici, fatture",
+            "4. Avvisi di spedizione o tracciamento",
+            "5. Avvisi di sicurezza o notifiche di accesso",
+            "6. Email di condoglianze o necrologi",
+            "7. Email con 'non rispondere a questo messaggio' o 'no-reply' nel testo",
+            "8. Email da indirizzi esplicitamente da ignorare (rasanfil@gmail.com, miqueldg63@gmail.com, rego.juan@gmail.com)",
+            "9. Comunicazioni politiche, elettorali o di partiti",
+            "10. Email con 'Unsubscribe', 'Cancella iscrizione', 'Gestisci iscrizione'",
+            "",
+            "🔄 FOLLOW-UP DI SOLO RINGRAZIAMENTO (NUOVA REGOLA - ATTENZIONE):",
+            "11. **SE E SOLO SE tutte queste condizioni sono vere contemporaneamente:**",
+            "    ✓ L'oggetto inizia con 'Re:' o 'R:' (è una RISPOSTA a conversazione esistente)",
+            "    ✓ Il contenuto contiene ESCLUSIVAMENTE:",
+            "      • Ringraziamenti ('grazie', 'grazie mille', 'vi ringrazio', 'ti ringrazio', etc.)",
+            "      • O conferme di ricezione ('ricevuto', 'ok ricevuto', 'tutto chiaro')",
+            "      • O conferme generiche ('perfetto', 'va bene', 'd'accordo', 'ok')",
+            "    ✓ NON contiene NESSUNA di queste cose:",
+            "      • Domande (anche implicite)",
+            "      • Nuove richieste",
+            "      • Nuove informazioni",
+            "      • Richieste di conferma",
+            "    → SOLO IN QUESTO CASO rispondi \"NO_REPLY\"",
+            "",
+            "✅ QUANDO INVECE RISPONDERE NORMALMENTE (NON \"NO_REPLY\"):",
+            "• Qualsiasi PRIMO messaggio (oggetto NON inizia con Re:), anche se contiene solo 'grazie'",
+            "• Follow-up (Re:) che contengono domande, anche se ringraziano prima",
+            "• Follow-up (Re:) con nuove richieste o informazioni",
+            "• Messaggi che richiedono conferma o azione",
+            "• Qualsiasi messaggio che non rientra esattamente nelle categorie sopra",
+            "",
+            "📚 ESEMPI PRATICI PER CHIARIRE:",
+            "",
+            "ESEMPIO A - Rispondi \"NO_REPLY\":",
+            "Oggetto: Re: Orari messa",
+            "Corpo: 'Grazie mille! Ricevuto tutto.'",
+            "→ È Re: + solo ringraziamento + no domande = NO_REPLY",
+            "",
+            "ESEMPIO B - Rispondi NORMALMENTE:",
+            "Oggetto: Re: Orari messa",
+            "Corpo: 'Grazie! Ma per domenica prossima gli orari sono gli stessi?'",
+            "→ È Re: MA contiene una domanda = RISPONDI",
+            "",
+            "ESEMPIO C - Rispondi NORMALMENTE:",
+            "Oggetto: Posso venire sabato?",
+            "Corpo: 'Vorrei sapere se posso partecipare sabato.'",
+            "→ NON è Re: (primo messaggio) = RISPONDI SEMPRE",
+            "",
+            "ESEMPIO D - Rispondi \"NO_REPLY\":",
+            "Oggetto: Re: Prenotazione confermata",
+            "Corpo: 'Perfetto, grazie! A sabato.'",
+            "→ È Re: + solo conferma/ringraziamento = NO_REPLY",
+            "",
+            "ESEMPIO E - Rispondi NORMALMENTE:",
+            "Oggetto: Re: Info catechismo",
+            "Corpo: 'Grazie per le info. Volevo anche sapere se serve portare qualcosa.'",
+            "→ È Re: MA contiene nuova richiesta = RISPONDI",
+            "",
+            "ESEMPIO F - Rispondi NORMALMENTE:",
+            "Oggetto: Grazie",
+            "Corpo: 'Grazie mille.'",
+            "→ NON è Re: (primo messaggio) = RISPONDI (anche se sembra strano)",
+            "",
+            "⚠️ IMPORTANTE: \"NO_REPLY\" significa che il sistema NON invierà ALCUNA risposta. Non devi scrivere un messaggio che dice \"questa email non richiede risposta\". Scrivi SOLO la parola \"NO_REPLY\" e basta.",
+            "",
+            "0. Se l'ultimo messaggio ricevuto contiene esclusivamente un ringraziamento o una conferma di ricezione, rispondi esattamente e solo con \"NO_REPLY\", indipendentemente dal contenuto della cronologia precedente.",
+            f"1. **Analisi dell'Interlocutore (COMPITO PRIORITARIO):** Leggi attentamente il contenuto e la firma. Cerca nomi, pronomi o altri indizi per identificare il mittente. Se non riesci a determinare il nome, usa una forma generica come \"Gentile utente,\".",
+            f"2. **Saluto Iniziale (IMPORTANTE):** Inizia la tua risposta esattamente con \"{salutation}\". Non aggiungere altro prima di questo saluto.",
+            "3. **Corpo della Risposta:** Rispondi alla richiesta in modo chiaro e completo, basandoti esclusivamente sulle \"INFORMAZIONI DI RIFERIMENTO\" fornite.",
+            "",
+            "⚠️ **REGOLA CRITICA - SOLO INFORMAZIONI VERIFICATE:**",
+            "• Usa ESCLUSIVAMENTE le informazioni presenti nelle \"INFORMAZIONI DI RIFERIMENTO\"",
+            "• NON inventare",
+            "",
+            "3-bis. **Email contenenti proposte pastorali, culturali, musicali o richieste insolite:**",
+            "   1. Ringrazia il mittente per l'iniziativa",
+            "   2. Mostra apprezzamento per elementi specifici della proposta",
+            "   3. Conferma che la proposta sarà esaminata a breve",
+            "   4. Comunica che verrà fornita una risposta in tempi rapidi",
+            "",
+            "4. **Gestione Informazioni Mancanti:** Se non hai le informazioni per rispondere, indicalo gentilmente e spiega che la segreteria prenderà in carico la richiesta.",
+            "4-bis. **Richiesta di fissare date:** Rispondere che la segreteria esaminerà se è possibile accontentare la richiesta e farà sapere al più presto.",
+            "5. **Gestione Follow-up:** Se l'oggetto inizia con \"Re:\" o \"R:\", significa che è un'email di follow-up. Sii più diretto e conciso.",
+            f"5-bis. **Orari Stagionali:** Quando fornisci orari di apertura, mostra SOLO gli orari del periodo corrente ({current_season}). Non elencare mai entrambi i set di orari.",
+            "6. **FILTRO INTELLIGENTE (NON RISPONDERE):** Se l'email rientra in una delle categorie da ignorare, rispondi solo con \"NO_REPLY\".",
+            "",
+            "6-bis. **Cresima adulti / Cresima ragazzi:**",
+            "- Se la richiesta è scritta da un genitore per il proprio figlio, rispondi con le informazioni relative alla Cresima ragazzi.",
+            "- Se la richiesta è scritta da un adulto per sé stesso, rispondi con le informazioni relative alla Cresima adulti.",
+            "",
+            "6-ter. **Informazioni sul ruolo di padrino/madrina:**",
+            "- Se e solo se l'interlocutore dice che intende fare da padrino o madrina, integra le seguenti indicazioni:",
+            '"Chi si avvicina alla Cresima con l\'intento di diventare padrino o madrina tenga presente i criteri da rispettare per essere idonei: aver compiuto 16 anni, non vivere in convivenza né essersi sposati solo civilmente, non aver procurato divorzio o essersi risposati civilmente, non essere genitore del cresimando, impegnarsi a condurre vita cristiana conforme alla fede."',
+            "- se l'interlocutore non allude alla possibilità di fare da padrino o madrina, non menzionare questi criteri.",
+            "",
+            "7. Se una persona scrive dicendo che vorrebbe partecipare a una catechesi ma che impegni di lavoro o familiari non glielo consentono, rispondere dicendo che è possibile seguire programmi per venire incontro alle sue esigenze.",
+            "8. **Risposte strettamente pertinenti:** Limita la risposta a ciò che è stato espressamente chiesto.",
+            "8-bis. **Filtro temporale:** Se la domanda specifica un periodo temporale, limita la risposta SOLO a quel periodo.",
+            "",
+            f"9. **Chiusura:** Termina la risposta con \"{closing_phrase}\".",
+            "",
+            "**INTEGRAZIONI IMPORTANTI (VINCOLANTI):**",
+            f"- **Lingua della risposta (PRIORITÀ ASSOLUTA):** Rispondi INTERAMENTE in {detected_language.upper()}. NON mescolare lingue.",
+            "- **FILTRO TEMPORALE ASSOLUTO:** Quando una domanda contiene \"a [mese]\" o \"nel [periodo]\", rispondi SOLO con informazioni di quel specifico periodo.",
+            "- **Distinzione certificato idoneità vs criteri Cresima:** se l'email parla di certificato/attestato di idoneità per fare da padrino/madrina, non elencare i criteri di idoneità della Cresima.",
+            "- **Uso delle Informazioni Specifiche (CRUCIALE):** Quando la base di conoscenza fornisce un dettaglio specifico, DEVI USARE QUELLO.",
+            f"- **Orari stagionali (CRUCIALE):** Quando menzioni orari di apertura, usa ESCLUSIVAMENTE quelli del periodo corrente ({current_season}).",
+            f"- **Formato della risposta:** inizia esattamente con \"{salutation}\".",
+            "  Corpo essenziale.",
+            "  Chiudi esattamente con:",
+            f"  \"{closing_phrase}\"",
+            "  Segreteria Parrocchia Sant'Eugenio",
+            "",
+            f"- **Lingua della risposta (VINCOLANTE):** usa la lingua {detected_language.upper()}.",
+            "CONTROLLO FINALE (obbligatorio):",
+            f"Dopo aver scritto la risposta, rileggila con attenzione e verifica che sia interamente in {detected_language.upper()}.",
+            "Riconosci con chiarezza ciò che l'interlocutore ha già fatto o comunicato, anche implicitamente.",
+            "Non ripetere istruzioni o informazioni che lui stesso dichiara di aver già eseguito o compreso.",
+            "Evita spiegazioni o suggerimenti che non aggiungono nulla di nuovo, né migliorano la chiarezza o la cortesia.",
+            "Se il messaggio del mittente contiene un'azione già compiuta (es. «ho allegato il modulo»), non dire cosa dovrebbe fare, ma conferma con gratitudine e indica con semplicità il passo successivo, se esiste.",
+            "Infine, rileggi l'intera risposta come se fossi tu a riceverla: deve suonare naturale, pertinente e rispettosa del tempo dell'altro.",
+            "",
+            "Adesso, genera la risposta completa utilizzando tutte le informazioni disponibili:"
+        ])
+
+        return '\n'.join(prompt_parts)
+
+    def _extract_main_reply(self, content: str) -> str:
+        """Extract main reply content without quoted text"""
+        import re
+
+        markers = [r'^>', r'^On .* wrote:', r'^Il giorno .* ha scritto:']
+        cut_content = content
+
+        for marker in markers:
+            match = re.search(marker, content, re.MULTILINE)
+            if match:
+                cut_content = content[:match.start()]
+                break
+
+        return cut_content.strip()
+
+    def _is_only_acknowledgement(self, text: str) -> bool:
+        """Check if text is only an acknowledgement"""
+        if not text:
+            return False
+        
+        import re
+        cleaned = text.lower().replace(',', '').strip()
+        cleaned = re.sub(r'\?', '', cleaned)
+        words_in_text = cleaned.split()
+        
+        # Ultra-simple acknowledgments only
+        ack_patterns = [
+            r'^grazie$',
+            r'^grazie\s*mille$',
+            r'^ricevuto$',
+            r'^ok\s*ricevuto$',
+            r'^perfetto$',
+            r'^ok$'
+        ]
+        
+        for pattern in ack_patterns:
+            if re.match(pattern, cleaned):
+                return True
+        
+        # 🔴 PRIORITÀ: Se ha QUALSIASI parola di richiesta → RISPONDI!
+        request_words = ['vorrei', 'sapere', 'informazioni', 'quando', 'come', 'dove',
+                        'orari', 'orario', 'costo', 'prezzo', 'quanto']
+        
+        if any(word in words_in_text for word in request_words):
+            return False  # ← HA RICHIESTA, RISPONDI!
+        
+        # Solo SE ha "grazie" E NON ha richieste → è acknowledgment
+        if 'grazie' in cleaned and len(words_in_text) <= 3:
+            return True
+        
+        return False
+
+    
+
+
+    # ========================================================================
+    # HEALTH CHECK AND DIAGNOSTICS
+    # ========================================================================
+
+    def test_connection(self) -> Dict:
+        """
+        Test Gemini API connection
+
+        Returns:
+            Dictionary with test results
+        """
+        results = {
+            'connection_ok': False,
+            'can_generate': False,
+            'errors': []
+        }
+
+        try:
+            # Test simple generation
+            test_prompt = "Rispondi con una sola parola: OK"
+
+            response = requests.post(
+                f"{self.base_url}?key={self.api_key}",
+                json={
+                    "contents": [{"parts": [{"text": test_prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "maxOutputTokens": 10
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=10
+            )
+
+            results['connection_ok'] = response.status_code == 200
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("candidates"):
+                    results['can_generate'] = True
+                else:
+                    results['errors'].append("API returned no candidates")
+            else:
+                results['errors'].append(f"API returned status {response.status_code}")
+
+        except Exception as e:
+            results['errors'].append(f"Connection error: {str(e)}")
+
+        results['is_healthy'] = results['connection_ok'] and results['can_generate']
+
+        return results
