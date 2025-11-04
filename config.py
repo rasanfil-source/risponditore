@@ -138,6 +138,7 @@ IGNORE_SENDERS = [
     'subito.it',
     'mailchimp.com',
     'mailup.com',
+    'unclickperlascuolaelosport.it',
     'sendinblue.com',
     'miqueldg63@gmail.com',
     'rego.juan@gmail.com'

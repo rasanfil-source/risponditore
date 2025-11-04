@@ -1,273 +1,144 @@
+# prompt_engine.py
+
 """
-Prompt Engine - Modular prompt building system
-Reduces token usage by ~40% through dynamic template composition
+Modular prompt engineering system
+Template-based prompts with dynamic composition
 """
 
-from typing import Dict, List, Optional, Protocol
+import logging
+from typing import Dict, Optional
 from datetime import datetime
 from dataclasses import dataclass
-import logging
 
 logger = logging.getLogger(__name__)
 
 
-# ============================================================================
-# TEMPLATE PROTOCOL
-# ============================================================================
-
-class PromptTemplate(Protocol):
-    """Protocol for all prompt templates"""
-    
-    def render(self, context: Dict) -> str:
-        """Render template with given context"""
-        ...
-    
-    def get_name(self) -> str:
-        """Get template name for debugging"""
-        ...
-
-
-# ============================================================================
-# CONTEXT DATA CLASS
-# ============================================================================
-
 @dataclass
 class PromptContext:
-    """Context data for prompt rendering"""
-    # Email data
+    """Context for prompt generation"""
     email_content: str
     email_subject: str
-    sender_email: str
     sender_name: str
-    
-    # Knowledge & conversation
+    sender_email: str
     knowledge_base: str
-    conversation_history: Optional[str] = None
-    
-    # Detection results
-    detected_language: str = 'it'
-    category: Optional[str] = None
-    
-    # Temporal context
-    current_datetime: Optional[datetime] = None
-    current_season: Optional[str] = None
-    
-    # Greetings (pre-computed)
-    salutation: Optional[str] = None
-    closing_phrase: Optional[str] = None
-    
-    def to_dict(self) -> Dict:
-        """Convert to dictionary for template rendering"""
-        return {
-            'email_content': self.email_content,
-            'email_subject': self.email_subject,
-            'sender_email': self.sender_email,
-            'sender_name': self.sender_name,
-            'knowledge_base': self.knowledge_base,
-            'conversation_history': self.conversation_history or '',
-            'detected_language': self.detected_language,
-            'category': self.category or '',
-            'current_season': self.current_season or 'invernale',
-            'salutation': self.salutation or f'Gentile {self.sender_name},',
-            'closing_phrase': self.closing_phrase or 'Cordiali saluti,'
-        }
+    conversation_history: str
+    category: Optional[str]
+    detected_language: str
+    current_season: str
+    now: datetime
+    salutation: str
+    closing: str
 
 
-# ============================================================================
-# CORE TEMPLATES
-# ============================================================================
-
-class SystemRoleTemplate:
-    """System role and base instructions"""
+class PromptTemplate:
+    """Base class for prompt templates"""
     
-    def get_name(self) -> str:
-        return "SystemRole"
-    
-    def render(self, context: Dict) -> str:
-        return """Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.
-Rispondi alle email in modo conciso, chiaro e solo con le informazioni esplicitamente richieste."""
+    def render(self, context: PromptContext) -> str:
+        raise NotImplementedError
 
 
-class LanguageInstructionTemplate:
-    """Language-specific instructions (dynamic based on detected language)"""
+class SystemRoleTemplate(PromptTemplate):
+    """System role definition"""
     
-    def get_name(self) -> str:
-        return "LanguageInstruction"
+    def render(self, context: PromptContext) -> str:
+        return "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma. Rispondi in modo conciso e chiaro."
+
+
+class LanguageInstructionTemplate(PromptTemplate):
+    """Language-specific instructions"""
     
-    def render(self, context: Dict) -> str:
-        lang = context.get('detected_language', 'it')
+    INSTRUCTIONS = {
+        'it': "Rispondi in italiano, la lingua dell'email ricevuta.",
+        'en': (
+            "🚨 CRITICAL: This email is in ENGLISH. "
+            "Respond ENTIRELY in English. NO Italian words."
+        ),
+        'es': (
+            "🚨 CRÍTICO: Este correo está en ESPAÑOL. "
+            "Responde COMPLETAMENTE en español. SIN palabras italianas."
+        )
+    }
+    
+    def render(self, context: PromptContext) -> str:
+        return self.INSTRUCTIONS.get(context.detected_language, self.INSTRUCTIONS['it'])
+
+
+class KnowledgeBaseTemplate(PromptTemplate):
+    """Knowledge base section"""
+    
+    def render(self, context: PromptContext) -> str:
+        return f"""**INFORMAZIONI DI RIFERIMENTO:**
+{context.knowledge_base}
+
+**REGOLA FONDAMENTALE:** Usa SOLO informazioni presenti sopra. NON inventare."""
+
+
+class SeasonalContextTemplate(PromptTemplate):
+    """Seasonal hours management"""
+    
+    def render(self, context: PromptContext) -> str:
+        season_note = (
+            f"IMPORTANTE: Siamo nel periodo {context.current_season.upper()}. "
+            f"Usa SOLO gli orari {context.current_season}."
+        )
         
-        if lang == 'en':
-            return """
-════════════════════════════════════════════════════════════
-CRITICAL PRIORITY INSTRUCTION
-════════════════════════════════════════════════════════════
-This email is written in ENGLISH.
-You MUST respond ENTIRELY and EXCLUSIVELY in English.
-Do NOT use ANY Italian words or phrases.
-Translate ALL parish information to English.
-This rule has ABSOLUTE PRIORITY over all other instructions.
-════════════════════════════════════════════════════════════"""
-        
-        elif lang == 'es':
-            return """
-════════════════════════════════════════════════════════════
-INSTRUCCIÓN CRÍTICA DE MÁXIMA PRIORIDAD
-════════════════════════════════════════════════════════════
-Este correo está escrito en ESPAÑOL.
-Debes responder COMPLETA y EXCLUSIVAMENTE en español.
-NO uses NINGUNA palabra o frase en italiano.
-Traduce TODA la información parroquial al español.
-Esta regla tiene PRIORIDAD ABSOLUTA sobre todas las demás instrucciones.
-════════════════════════════════════════════════════════════"""
-        
-        else:  # Italian (default)
-            return """Rispondi SEMPRE nella stessa lingua in cui è scritta l'email ricevuta.
-Se l'email è in inglese, rispondi in inglese. Se è in spagnolo, rispondi in spagnolo.
-Non tradurre e non mischiare lingue."""
+        return f"""**ORARI STAGIONALI:**
+{season_note}
+Non mostrare mai entrambi i set di orari."""
 
 
-class KnowledgeBaseTemplate:
-    """Knowledge base injection"""
+class CategoryHintTemplate(PromptTemplate):
+    """Category-specific hints"""
     
-    def get_name(self) -> str:
-        return "KnowledgeBase"
+    HINTS = {
+        'appointment': "📌 Email su APPUNTAMENTO: fornisci info su come fissare appuntamenti.",
+        'information': "📌 Richiesta INFORMAZIONI: rispondi basandoti sulla knowledge base.",
+        'sacrament': "📌 Email su SACRAMENTI: fornisci info dettagliate su requisiti e procedure.",
+        'collaboration': "📌 Proposta COLLABORAZIONE: ringrazia e spiega come procedere.",
+        'complaint': "📌 Possibile RECLAMO: rispondi con empatia e professionalità."
+    }
     
-    def render(self, context: Dict) -> str:
-        kb = context.get('knowledge_base', '')
-        if not kb:
+    def render(self, context: PromptContext) -> str:
+        if not context.category or context.category not in self.HINTS:
             return ""
         
-        return f"""
-═══════════════════════════════════════════════════════════════
-INFORMAZIONI DI RIFERIMENTO DELLA PARROCCHIA
-═══════════════════════════════════════════════════════════════
-{kb}
-
-REGOLA CRITICA - SOLO INFORMAZIONI VERIFICATE:
-Usa ESCLUSIVAMENTE le informazioni presenti sopra. NON inventare orari, email, numeri di telefono o altre informazioni."""
+        return f"**CATEGORIA IDENTIFICATA:**\n{self.HINTS[context.category]}\n"
 
 
-class SeasonalContextTemplate:
-    """Seasonal hours context"""
+class ConversationHistoryTemplate(PromptTemplate):
+    """Conversation history context"""
     
-    def get_name(self) -> str:
-        return "SeasonalContext"
-    
-    def render(self, context: Dict) -> str:
-        season = context.get('current_season', 'invernale')
-        
-        if season == 'estivo':
-            note = """⚠️ IMPORTANTE: Siamo attualmente nel periodo ESTIVO.
-Utilizza SOLO gli orari estivi nelle risposte.
-Non mostrare contemporaneamente sia gli orari estivi che quelli invernali.
-Mostra SOLO quelli del periodo corrente."""
-        else:
-            note = """⚠️ IMPORTANTE: Siamo attualmente nel periodo INVERNALE.
-Utilizza SOLO gli orari invernali nelle risposte.
-Non mostrare contemporaneamente sia gli orari estivi che quelli invernali.
-Mostra SOLO quelli del periodo corrente."""
-        
-        return f"""
-═══════════════════════════════════════════════════════════════
-GESTIONE ORARI STAGIONALI
-═══════════════════════════════════════════════════════════════
-{note}"""
-
-
-class CategoryHintTemplate:
-    """Category-specific hints (only if category detected)"""
-    
-    def get_name(self) -> str:
-        return "CategoryHint"
-    
-    def render(self, context: Dict) -> str:
-        category = context.get('category')
-        if not category:
+    def render(self, context: PromptContext) -> str:
+        if not context.conversation_history:
             return ""
         
-        hints = {
-            'appointment': """📅 NOTA: Questa email riguarda la richiesta di un appuntamento.
-Fornisci informazioni su come fissare appuntamenti e gli orari disponibili.""",
-            
-            'information': """ℹ️ NOTA: Questa email richiede informazioni generali.
-Rispondi in modo chiaro e completo basandoti sulla knowledge base.""",
-            
-            'sacrament': """✝️ NOTA: Questa email riguarda i sacramenti.
-Fornisci informazioni dettagliate sui requisiti e le procedure.""",
-            
-            'collaboration': """🤝 NOTA: Questa email propone collaborazione o volontariato.
-Ringrazia e spiega come procedere.""",
-            
-            'complaint': """⚠️ NOTA: Questa email potrebbe contenere un reclamo.
-Rispondi con empatia e professionalità."""
-        }
-        
-        hint = hints.get(category, "")
-        if not hint:
-            return ""
-        
-        return f"""
-═══════════════════════════════════════════════════════════════
-CATEGORIA EMAIL IDENTIFICATA
-═══════════════════════════════════════════════════════════════
-{hint}"""
+        return f"""**CRONOLOGIA CONVERSAZIONE:**
+Messaggi precedenti per contesto. Non ripetere info già fornite.
+\"\"\"
+{context.conversation_history}
+\"\"\""""
 
 
-class ConversationHistoryTemplate:
-    """Conversation history (only if present)"""
-    
-    def get_name(self) -> str:
-        return "ConversationHistory"
-    
-    def render(self, context: Dict) -> str:
-        history = context.get('conversation_history', '').strip()
-        if not history:
-            return ""
-        
-        return f"""
-═══════════════════════════════════════════════════════════════
-CRONOLOGIA DELLA CONVERSAZIONE (CONTESTO)
-═══════════════════════════════════════════════════════════════
-Di seguito i messaggi precedenti. Analizzali per capire il contesto ed evitare di ripetere informazioni già date.
-
-{history}
-"""
-
-
-class CurrentEmailTemplate:
+class EmailContentTemplate(PromptTemplate):
     """Current email to respond to"""
     
-    def get_name(self) -> str:
-        return "CurrentEmail"
-    
-    def render(self, context: Dict) -> str:
-        return f"""
-═══════════════════════════════════════════════════════════════
-ULTIMA EMAIL RICEVUTA A CUI RISPONDERE
-═══════════════════════════════════════════════════════════════
-Da: {context.get('sender_email')} (Nome di fallback: {context.get('sender_name')})
-Oggetto: {context.get('email_subject')}
-Lingua rilevata: {context.get('detected_language', 'it').upper()}
+    def render(self, context: PromptContext) -> str:
+        return f"""**EMAIL DA RISPONDERE:**
+Da: {context.sender_email} ({context.sender_name})
+Oggetto: {context.email_subject}
+Lingua: {context.detected_language.upper()}
 
 Contenuto:
-───────────────────────────────────────────────────────────────
-{context.get('email_content')}
-───────────────────────────────────────────────────────────────"""
+\"\"\"
+{context.email_content}
+\"\"\""""
 
 
-class NoReplyRulesTemplate:
-    """Condensed NO_REPLY rules (reduced from 2400 to 800 chars)"""
+class NoReplyRulesTemplate(PromptTemplate):
+    """Condensed NO_REPLY rules"""
     
-    def get_name(self) -> str:
-        return "NoReplyRules"
-    
-    def render(self, context: Dict) -> str:
-        return """
-═══════════════════════════════════════════════════════════════
-REGOLA CRITICA - NO_REPLY (APPLICA CON RIGORE)
-═══════════════════════════════════════════════════════════════
-Rispondi ESATTAMENTE con solo "NO_REPLY" (senza altro testo) se l'email è:
+    def render(self, context: PromptContext) -> str:
+        return """**QUANDO NON RISPONDERE (scrivi solo "NO_REPLY"):**
 
 1. Newsletter, pubblicità, email automatiche (Amazon, PayPal, tracking)
 2. Bollette, fatture, ricevute, notifiche bancarie
@@ -291,122 +162,186 @@ Rispondi ESATTAMENTE con solo "NO_REPLY" (senza altro testo) se l'email è:
 ⚠️ "NO_REPLY" significa che NON invierò risposta. Scrivi SOLO "NO_REPLY", nient'altro."""
 
 
-class ResponseGuidelinesTemplate:
-    """Response formatting guidelines (condensed)"""
+class ResponseGuidelinesTemplate(PromptTemplate):
+    """Core response guidelines (condensed)"""
     
-    def get_name(self) -> str:
-        return "ResponseGuidelines"
+    def render(self, context: PromptContext) -> str:
+        return f"""**LINEE GUIDA RISPOSTA:**
+
+1. **Identificazione mittente:** Cerca il nome nella firma/contenuto. Se assente: forma generica.
+
+2. **Formato risposta:**
+   {context.salutation}
+   [Corpo conciso e pertinente]
+   {context.closing}
+   Segreteria Parrocchia Sant'Eugenio
+
+3. **Contenuto:**
+   • Rispondi SOLO a ciò che è chiesto
+   • Usa SOLO info dalla knowledge base
+   • Se info mancano: indica che la segreteria si farà sentire
+   • Follow-up (Re:): sii più diretto e conciso
+
+4. **Proposte insolite:** Ringrazia, apprezza, conferma esame e risposta rapida
+
+5. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
+
+6. **Lingua:** Rispondi in {context.detected_language.upper()}, la lingua dell'email
+
+7. **Controllo finale:** Rileggi. Deve essere naturale, pertinente, rispettoso."""
+
+
+class SpecialCasesTemplate(PromptTemplate):
+    """Special cases handling"""
     
-    def render(self, context: Dict) -> str:
-        salutation = context.get('salutation', 'Gentile utente,')
-        closing = context.get('closing_phrase', 'Cordiali saluti,')
-        lang = context.get('detected_language', 'it').upper()
-        
-        return f"""
-═══════════════════════════════════════════════════════════════
-LINEE GUIDA PER LA RISPOSTA
-═══════════════════════════════════════════════════════════════
-1. Identificazione mittente: Cerca il nome nel contenuto/firma. Se non trovi, usa forma generica.
+    def render(self, context: PromptContext) -> str:
+        return """**CASI SPECIALI:**
 
-2. Formato risposta:
-   • Inizia esattamente con: {salutation}
-   • Corpo: Risposta concisa basata SOLO su informazioni verificate
-   • Chiudi con: {closing}
-                 Segreteria Parrocchia Sant'Eugenio
+• **Cresima:** Se genitore per figlio → info Cresima ragazzi. Se adulto per sé → info Cresima adulti.
+• **Padrino/Madrina:** Se l'interlocutore vuole fare da padrino/madrina, includi criteri idoneità.
+• **Certificato idoneità:** NON confondere con criteri Cresima. Sono due cose diverse.
+• **Impegni lavorativi:** Se impossibilitato a partecipare → offri programmi flessibili.
+• **Filtro temporale:** "a giugno" → rispondi SOLO con info di giugno."""
 
-3. Lingua: Rispondi INTERAMENTE in {lang}. NON mescolare lingue.
+# ═══════════════════════════════════════════════════════════════
+# 🆕 NUOVO TEMPLATE: VERIFICA TERRITORIO
+# ═══════════════════════════════════════════════════════════════
+class TerritoryVerificationTemplate(PromptTemplate):
+    """Territory verification rules and guidance"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """**VERIFICA TERRITORIO PARROCCHIALE - REGOLA SPECIALE:**
 
-4. Informazioni mancanti: Se non hai le info, indicalo gentilmente e spiega che la segreteria prenderà in carico.
+🎯 PRIORITÀ ASSOLUTA: Se nella sezione "INFORMAZIONI DI RIFERIMENTO" trovi 
+il blocco "VERIFICA TERRITORIO AUTOMATICA", quello è il risultato di una 
+verifica programmatica precisa al 100%.
 
-5. Follow-up (oggetto con "Re:"): Sii più diretto e conciso.
+✅ ISTRUZIONI:
+• Usa ESATTAMENTE le informazioni dalla verifica automatica
+• NON fare supposizioni o interpretazioni personali
+• NON basarti solo sulla knowledge base testuale generica
+• Se la verifica dice "RIENTRA" → l'indirizzo è nel territorio
+• Se la verifica dice "NON RIENTRA" → l'indirizzo NON è nel territorio
 
-CONTROLLO FINALE: Rileggi e verifica che sia interamente in {lang}."""
+❌ Se la verifica automatica NON è presente:
+• Significa che non è stato rilevato un indirizzo specifico nell'email
+• In questo caso usa le informazioni generali dalla knowledge base
+• Se chiede di un indirizzo specifico senza numero civico → chiedi il numero
 
+⚠️ La verifica automatica è SEMPRE corretta. Fidati di essa al 100%."""
+# ═══════════════════════════════════════════════════════════════
 
-# ============================================================================
-# PROMPT ENGINE CLASS
-# ============================================================================
 
 class PromptEngine:
     """
-    Main prompt engine that orchestrates template rendering
+    Modular prompt composition engine
     
-    Usage:
-        engine = PromptEngine()
-        prompt = engine.build_prompt(context)
+    Benefits:
+    - ~40% token reduction through deduplication
+    - Easy A/B testing of specific sections
+    - Better maintainability
+    - Dynamic template selection
     """
     
     def __init__(self):
-        """Initialize engine with template pipeline"""
-        logger.info("Initializing PromptEngine...")
+        logger.info("🎨 Initializing PromptEngine...")
         
-        # Template pipeline (order matters!)
-        self.templates: List[PromptTemplate] = [
+        # Template pipeline (order matters)
+        self.template_pipeline = [
             SystemRoleTemplate(),
             LanguageInstructionTemplate(),
             KnowledgeBaseTemplate(),
+            TerritoryVerificationTemplate(),
             SeasonalContextTemplate(),
             CategoryHintTemplate(),
             ConversationHistoryTemplate(),
-            CurrentEmailTemplate(),
+            EmailContentTemplate(),
             NoReplyRulesTemplate(),
-            ResponseGuidelinesTemplate()
+            ResponseGuidelinesTemplate(),
+            SpecialCasesTemplate(),
         ]
         
-        logger.info(f"✓ PromptEngine initialized with {len(self.templates)} templates")
+        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates")
     
-    def build_prompt(self, context: PromptContext) -> str:
+    def build_prompt(
+        self,
+        email_content: str,
+        email_subject: str,
+        knowledge_base: str,
+        sender_name: str,
+        sender_email: str,
+        conversation_history: str,
+        category: Optional[str],
+        detected_language: str,
+        current_season: str,
+        now: datetime,
+        salutation: str,
+        closing: str
+    ) -> str:
         """
-        Build complete prompt from context
+        Build optimized prompt from templates
         
-        Args:
-            context: PromptContext with all necessary data
-            
         Returns:
-            Complete rendered prompt string
+            Complete prompt (~40% smaller than original)
         """
-        logger.debug("Building prompt from context...")
-        
-        # Convert context to dict
-        context_dict = context.to_dict()
+        context = PromptContext(
+            email_content=email_content,
+            email_subject=email_subject,
+            sender_name=sender_name,
+            sender_email=sender_email,
+            knowledge_base=knowledge_base,
+            conversation_history=conversation_history,
+            category=category,
+            detected_language=detected_language,
+            current_season=current_season,
+            now=now,
+            salutation=salutation,
+            closing=closing
+        )
         
         # Render all templates
         sections = []
-        for template in self.templates:
+        for template in self.template_pipeline:
             try:
-                rendered = template.render(context_dict)
-                if rendered and rendered.strip():
-                    sections.append(rendered.strip())
-                    logger.debug(f"   ✓ Rendered {template.get_name()}: {len(rendered)} chars")
+                rendered = template.render(context)
+                if rendered:  # Skip empty sections
+                    sections.append(rendered)
             except Exception as e:
-                logger.error(f"   ✗ Error rendering {template.get_name()}: {e}")
-                # Continue with other templates
+                logger.error(f"Error rendering {template.__class__.__name__}: {e}")
+                continue
         
-        # Join sections
+        # Compose final prompt
         prompt = "\n\n".join(sections)
+        prompt += "\n\n**Genera la risposta completa:**"
         
-        logger.info(f"✓ Prompt built: {len(prompt)} chars, {len(sections)} sections")
+        logger.debug(f"📐 Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
         
         return prompt
     
-    def get_template_stats(self, context: PromptContext) -> Dict[str, int]:
-        """
-        Get statistics about rendered template sizes
-        
-        Args:
-            context: PromptContext with all necessary data
-            
-        Returns:
-            Dict mapping template name to character count
-        """
-        context_dict = context.to_dict()
+    def estimate_tokens(self, text: str) -> int:
+        """Rough token estimation (1 token ≈ 4 characters)"""
+        return len(text) // 4
+    
+    def get_template_stats(self, context: PromptContext) -> Dict:
+        """Get statistics about template contributions"""
         stats = {}
+        total_size = 0
         
-        for template in self.templates:
+        for template in self.template_pipeline:
             try:
-                rendered = template.render(context_dict)
-                stats[template.get_name()] = len(rendered) if rendered else 0
-            except Exception as e:
-                stats[template.get_name()] = -1  # Error indicator
+                rendered = template.render(context)
+                size = len(rendered) if rendered else 0
+                stats[template.__class__.__name__] = {
+                    'size_chars': size,
+                    'size_tokens': self.estimate_tokens(rendered) if rendered else 0
+                }
+                total_size += size
+            except Exception:
+                stats[template.__class__.__name__] = {'size_chars': 0, 'size_tokens': 0}
+        
+        stats['total'] = {
+            'size_chars': total_size,
+            'size_tokens': self.estimate_tokens(str(total_size))
+        }
         
         return stats

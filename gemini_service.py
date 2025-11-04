@@ -13,6 +13,9 @@ from utils import get_current_season, get_special_day_greeting
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
+from prompt_engine import PromptEngine, PromptContext  # ← NUOVO
+from territory_validator import TerritoryValidator
+
 
 logger = logging.getLogger(__name__)
 
@@ -93,6 +96,11 @@ class GeminiService:
 
         if len(self.api_key) < 20:
             logger.warning("⚠️  GEMINI_API_KEY seems too short, please verify")
+
+        # Initialize PromptEngine
+        self.prompt_engine = PromptEngine()  # ← NUOVO
+        self.territory_validator = TerritoryValidator()
+
 
         logger.info(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
 
@@ -282,16 +290,78 @@ class GeminiService:
                 logger.info("   Gemini: Matched thank-you pattern, returning NO_REPLY")
                 return "NO_REPLY"
 
-        # Generate prompt
-        prompt = self._build_prompt(
-            email_content,
-            email_subject,
-            knowledge_base,
-            sender_name,
-            sender_email,
-            conversation_history,
-            category
+        # Detect language and prepare context
+        now = datetime.now(ITALIAN_TZ)
+        detected_language = self._detect_email_language(email_content, email_subject)
+        salutation, closing = self._get_adaptive_greeting(now, sender_name, detected_language)
+        current_season = get_current_season(now)
+
+        # Build context
+        context = PromptContext(
+            email_content=email_content,
+            email_subject=email_subject,
+            sender_name=sender_name,
+            sender_email=sender_email,
+            knowledge_base=knowledge_base,
+            conversation_history=conversation_history,
+            category=category,
+            detected_language=detected_language,
+            current_season=current_season,
+            now=now,
+            salutation=salutation,
+            closing=closing
         )
+
+        # ═══════════════════════════════════════════════════════════════
+        # VERIFICA AUTOMATICA TERRITORIO PARROCCHIALE
+        # ═══════════════════════════════════════════════════════════════
+        territory_info = self.territory_validator.analyze_email_for_address(
+            email_content, email_subject
+        )
+
+        if territory_info['address_found']:
+            verification = territory_info['verification']
+            logger.info(f"🏘️ Territory check: {verification['reason']}")
+            
+            territory_context = f"""
+{'='*70}
+🎯 VERIFICA TERRITORIO AUTOMATICA (INFORMAZIONE VERIFICATA - PRIORITÀ ASSOLUTA)
+{'='*70}
+Indirizzo rilevato nell'email: {territory_info['street']} n. {territory_info['civic']}
+
+Risultato verifica: {'✅ RIENTRA NEL TERRITORIO PARROCCHIALE' if verification['in_parish'] else '❌ NON RIENTRA NEL TERRITORIO PARROCCHIALE'}
+
+Dettaglio: {verification['reason']}
+
+⚠️ ISTRUZIONE VINCOLANTE:
+Usa ESATTAMENTE queste informazioni verificate programmaticamente per rispondere 
+alla domanda sul territorio. NON fare supposizioni, NON interpretare, 
+usa SOLO il risultato di questa verifica automatica.
+{'='*70}
+
+"""
+            knowledge_base = territory_context + knowledge_base
+            logger.debug(f"   📋 Territory context added to prompt ({len(territory_context)} chars)")
+        # ═══════════════════════════════════════════════════════════════
+
+
+
+
+        # Generate optimized prompt usando parametri individuali
+        prompt = self.prompt_engine.build_prompt(
+        email_content=email_content,
+        email_subject=email_subject,
+        knowledge_base=knowledge_base,
+        sender_name=sender_name,
+        sender_email=sender_email,
+        conversation_history=conversation_history,
+        category=category,
+        detected_language=detected_language,
+        current_season=current_season,
+        now=now,
+        salutation=salutation,
+        closing=closing
+    )
 
         # Validate prompt size
         if len(prompt) > 100000:
@@ -312,7 +382,7 @@ class GeminiService:
                     }
                 },
                 headers={"Content-Type": "application/json"},
-                timeout=30  # 30 seconds timeout
+                timeout=30
             )
 
             if response.status_code == 200:
