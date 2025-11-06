@@ -140,6 +140,7 @@ IGNORE_SENDERS = [
     'mailup.com',
     '@diocesidiroma.it',
     'unclickperlascuolaelosport.it',
+    'info@fabiomililli.it',
     'sendinblue.com',
     'miqueldg63@gmail.com',
     'rego.juan@gmail.com'
