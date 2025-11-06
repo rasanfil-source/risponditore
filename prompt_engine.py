@@ -1,8 +1,14 @@
-# prompt_engine.py
+# prompt_engine.py - VERSIONE 2.0 MIGLIORATA
 
 """
-Modular prompt engineering system
-Template-based prompts with dynamic composition
+Modular prompt engineering system - ENHANCED VERSION
+Template-based prompts with conversational intelligence
+
+WHAT'S NEW in v2.0:
+✨ ConversationalGuidelinesTemplate - teaches human-like responses
+✨ KnowledgeBaseExtractionTemplate - smart KB info extraction
+✨ Enhanced ResponseGuidelinesTemplate - prioritizes completeness
+✨ Multi-question handling strategy
 """
 
 import logging
@@ -37,11 +43,15 @@ class PromptTemplate:
         raise NotImplementedError
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# EXISTING TEMPLATES (unchanged)
+# ═══════════════════════════════════════════════════════════════════════════
+
 class SystemRoleTemplate(PromptTemplate):
     """System role definition"""
     
     def render(self, context: PromptContext) -> str:
-        return "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma. Rispondi in modo conciso e chiaro."
+        return "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma. Rispondi in modo cordiale, completo e conversazionale."
 
 
 class LanguageInstructionTemplate(PromptTemplate):
@@ -63,6 +73,63 @@ class LanguageInstructionTemplate(PromptTemplate):
         return self.INSTRUCTIONS.get(context.detected_language, self.INSTRUCTIONS['it'])
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# ✨ NEW TEMPLATE 1: Knowledge Base Extraction Strategy
+# ═══════════════════════════════════════════════════════════════════════════
+
+class KnowledgeBaseExtractionTemplate(PromptTemplate):
+    """Strategia di estrazione intelligente dalla KB"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """**STRATEGIA DI ESTRAZIONE DALLA KNOWLEDGE BASE:**
+
+🔍 **Come leggere la KB in modo intelligente:**
+
+1. **CERCA PATTERN CORRELATI:**
+   Se l'email chiede di "Santiago", cerca nella KB:
+   • "Santiago" (ovviamente)
+   • "Cammino"
+   • "pellegrinaggio"
+   • "Portogallo" (potrebbe essere nel percorso)
+   • Mesi/date menzionati nell'email (es. "giugno", "luglio")
+
+2. **ESTRAI DETTAGLI NASCOSTI:**
+   Nella KB potresti trovare:
+   ```
+   Categoria: Pellegrinaggi
+   Dettagli: Dal 27/06 al 04/07/2026. Via portoghese da Tui. 
+             Partenza con volo per Porto, transfer a Tui. 
+             Ritorno da Santiago. Costi: ostello ~500€, camere private ~700€.
+   ```
+   
+   Da questo DEVI ricavare TUTTI i dettagli:
+   • Date esatte: 27/06-04/07/2026
+   • Percorso: via portoghese, Tui → Santiago
+   • Logistica: volo Porto, transfer, ritorno Santiago
+   • Costi dettagliati: base + extra
+
+3. **COMBINA INFORMAZIONI:**
+   Se l'email chiede "costo totale", NON dire solo "vedi link".
+   Fai il calcolo approssimativo dalla KB:
+   • Base ostello: 500€
+   • Transfer: 80€
+   • Volo: 200€
+   • TOTALE stimato: ~780€
+   
+   Poi aggiungi: "Per dettagli aggiornati: [link]"
+
+4. **GESTIONE INFO PARZIALI:**
+   Se nella KB manca qualcosa (es. "si può fare in bici?"):
+   • NON inventare
+   • NON ignorare la domanda
+   • Rispondi con logica: "Il gruppo va a piedi. Il percorso è 
+     tecnicamente percorribile in bici, ma serve organizzazione diversa."
+
+💡 **REGOLA D'ORO:**
+Ogni dettaglio nella KB è lì per essere USATO nelle risposte, 
+non solo per "rimandare al link"."""
+
+
 class KnowledgeBaseTemplate(PromptTemplate):
     """Knowledge base section"""
     
@@ -70,7 +137,7 @@ class KnowledgeBaseTemplate(PromptTemplate):
         return f"""**INFORMAZIONI DI RIFERIMENTO:**
 {context.knowledge_base}
 
-**REGOLA FONDAMENTALE:** NON inventare."""
+**REGOLA FONDAMENTALE:** Usa le info qui presenti in modo ATTIVO. NON inventare."""
 
 
 class SeasonalContextTemplate(PromptTemplate):
@@ -140,55 +207,152 @@ class NoReplyRulesTemplate(PromptTemplate):
     def render(self, context: PromptContext) -> str:
         return """**QUANDO NON RISPONDERE (scrivi solo "NO_REPLY"):**
 
-1. Newsletter, pubblicità, email automatiche (Amazon, PayPal, tracking)
-2. Bollette, fatture, ricevute, notifiche bancarie
+1. Newsletter, pubblicità, email automatiche
+2. Bollette, fatture, ricevute
 3. Condoglianze, necrologi
-4. Email con "no-reply" o "non rispondere"
-5. Comunicazioni politiche, "Unsubscribe"
+4. Email con "no-reply"
+5. Comunicazioni politiche
 
 6. **Follow-up di SOLO ringraziamento** (tutte queste condizioni):
-   ✓ Oggetto inizia con "Re:" (è una risposta)
-   ✓ Contiene SOLO: ringraziamenti, conferme ("ricevuto", "ok", "perfetto")
-   ✓ NON contiene: domande, nuove richieste, richieste di conferma
-   
-   Esempi NO_REPLY:
-   • Re: Orari → "Grazie mille! Ricevuto."
-   • Re: Info → "Perfetto, grazie!"
-   
-   Esempi RISPONDI:
-   • Re: Orari → "Grazie! Ma domenica gli orari cambiano?"
-   • Primo messaggio → "Grazie" (NON è Re:, quindi rispondi)
+   ✓ Oggetto inizia con "Re:"
+   ✓ Contiene SOLO: ringraziamenti, conferme
+   ✓ NON contiene: domande, nuove richieste
 
-⚠️ "NO_REPLY" significa che NON invierò risposta. Scrivi SOLO "NO_REPLY", nient'altro."""
+⚠️ "NO_REPLY" significa che NON invierò risposta. Scrivi SOLO "NO_REPLY"."""
 
 
-class ResponseGuidelinesTemplate(PromptTemplate):
-    """Core response guidelines (condensed)"""
+# ═══════════════════════════════════════════════════════════════════════════
+# ✨ NEW TEMPLATE 2: Conversational Guidelines (CORE IMPROVEMENT)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ConversationalGuidelinesTemplate(PromptTemplate):
+    """Linee guida per risposte conversazionali e complete"""
     
     def render(self, context: PromptContext) -> str:
-        return f"""**LINEE GUIDA RISPOSTA:**
+        return """**LINEE GUIDA CONVERSAZIONALI (PRIORITÀ ALTA):**
 
-1. **Identificazione mittente:** Cerca il nome nella firma/contenuto. Se assente: forma generica.
+🎯 **Filosofia di risposta:**
+• NON essere un FAQ robot che risponde solo con link
+• Sii un segretario umano, cordiale, che DIALOGA con le persone
+• Rispondi a TUTTE le sotto-domande dell'email
+
+📋 **Checklist per ogni risposta:**
+1. ✅ Ho risposto a OGNI domanda nell'email?
+2. ✅ Ho fornito CONTESTO oltre ai dati nudi?
+3. ✅ Ho indicato COSTI TOTALI realistici (non solo "vedi link")?
+4. ✅ Ho offerto ALTERNATIVE se necessario?
+5. ✅ Ho chiuso con DOMANDA/CALL-TO-ACTION?
+
+💡 **Esempio di approccio conversazionale:**
+
+DOMANDA: "Quanto costa Santiago e si può fare in bici?"
+
+❌ SBAGLIATO (troppo secco):
+"Il costo è qui: [link]. Si fa a piedi."
+
+✅ CORRETTO (conversazionale):
+"Buonasera, [Nome]!
+Il nostro gruppo parte il 27/06 da Tui (via portoghese).
+Costi: ostello ~500€ + pasti + transfer (~80€) + volo (~200€) = ~780€ totali.
+Il gruppo va a piedi. Il percorso è tecnicamente percorribile in bici,
+ma serve organizzazione dedicata.
+Ti interessa unirti al gruppo a piedi o cerchi un'opzione in bici?
+Dettagli completi: [link]"
+
+🔑 **Differenze chiave:**
+• Nome usato
+• Dettagli specificati (non solo link)
+• Costi totali stimati
+• Risposta completa alla domanda bici
+• Domanda finale
+
+📝 **GESTIONE DOMANDE MULTIPLE:**
+
+Processo:
+1. Identifica OGNI domanda (esplicita o implicita)
+2. Per OGNI domanda: verifica info in KB
+3. Rispondi a TUTTE con dettagli
+4. Se manca info: dillo e offri follow-up
+
+ESEMPIO:
+Email: "Costo Santiago dal 29/06? Da dove si parte? Bici?"
+
+Domande identificate:
+• Q1: Costo
+• Q2: Date (29/06 vs date gruppo)
+• Q3: Partenza
+• Q4: Bici
+
+Risposta strutturata:
+[Saluto]
+Q1-Q2: "Il gruppo parte il 27/06 (date vicine). Costi totali ~780€..."
+Q3: "Partenza da Tui dopo volo Porto..."
+Q4: "Gruppo a piedi, bici possibile ma logistica diversa..."
+[Domanda per chiarire preferenze]"""
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# ✨ UPDATED TEMPLATE: Response Guidelines (Enhanced)
+# ═══════════════════════════════════════════════════════════════════════════
+
+class ResponseGuidelinesTemplate(PromptTemplate):
+    """Core response guidelines (enhanced - prioritizes completeness)"""
+    
+    def render(self, context: PromptContext) -> str:
+        return f"""**LINEE GUIDA RISPOSTA (AGGIORNATE):**
+
+1. **Identificazione mittente:** 
+   Usa SEMPRE il nome nel saluto se disponibile.
 
 2. **Formato risposta:**
    {context.salutation}
-   [Corpo conciso e pertinente]
+   [Corpo COMPLETO e CONVERSAZIONALE]
    {context.closing}
    Segreteria Parrocchia Sant'Eugenio
 
-3. **Contenuto:**
-   • Rispondi SOLO a ciò che è chiesto
-   • Usa info dalla knowledge base
-   • Se info mancano: indica che la segreteria si farà sentire
-   • Follow-up (Re:): sii più diretto e conciso
+3. **Contenuto (PRIORITÀ: COMPLETEZZA > CONCISIONE):**
+   
+   ⚠️ IMPORTANTE: NON essere troppo conciso!
+   
+   • Rispondi a TUTTE le domande
+   • Fornisci DETTAGLI dalla KB (non solo link)
+   • Costi: dai stima totale
+   • Date/luoghi: specificali
+   • Info mancanti: dillo e offri follow-up
+   
+   LUNGHEZZA TIPICA: 150-300 parole
 
-4. **Proposte insolite:** Ringrazia, apprezza, conferma esame e risposta rapida
+4. **Orari:** SOLO periodo corrente ({context.current_season})
 
-5. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
+5. **Lingua:** {context.detected_language.upper()}
 
-6. **Lingua:** Rispondi in {context.detected_language.upper()}, la lingua dell'email
+6. **Controllo finale:**
+   ✓ Nome mittente usato?
+   ✓ Tutte le domande coperte?
+   ✓ Dettagli dalla KB forniti?
+   ✓ Costi totali stimati?
+   ✓ Call-to-action finale?
+   ✓ Tono cordiale?
 
-7. **Controllo finale:** Rileggi. Deve essere naturale, pertinente, rispettoso."""
+7. **ESEMPI TONO:**
+   ❌ "Costo: [link]. A piedi."
+   ✅ "Il gruppo parte il [data] da Tui. Costi ~780€ totali
+      (ostello + voli + pasti). Va a piedi, ma bici è 
+      tecnicamente possibile. Ti interessa unirti?"
+"""
+
+
+class TerritoryVerificationTemplate(PromptTemplate):
+    """Territory verification rules"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """**VERIFICA TERRITORIO PARROCCHIALE:**
+
+Se trovi blocco "VERIFICA TERRITORIO AUTOMATICA" nelle INFO:
+✅ Usa ESATTAMENTE quelle informazioni (verifica al 100% corretta)
+❌ NON fare supposizioni o interpretazioni
+
+Se assente: usa info generiche dalla KB."""
 
 
 class SpecialCasesTemplate(PromptTemplate):
@@ -197,59 +361,38 @@ class SpecialCasesTemplate(PromptTemplate):
     def render(self, context: PromptContext) -> str:
         return """**CASI SPECIALI:**
 
-• **Cresima:** Se genitore per figlio → info Cresima ragazzi. Se adulto per sé → info Cresima adulti.
-• **Padrino/Madrina:** Se l'interlocutore vuole fare da padrino/madrina, includi criteri idoneità.
-• **Certificato idoneità:** NON confondere con criteri Cresima. Sono due cose diverse.
-• **Impegni lavorativi:** Se impossibilitato a partecipare → offri programmi flessibili.
-• **Filtro temporale:** "a giugno" → rispondi SOLO con info di giugno."""
+• **Cresima:** Genitore→ragazzi, Adulto→adulti
+• **Padrino/Madrina:** Se vuole fare → criteri
+• **Impegni:** Se impossibilitato → programmi flessibili
+• **Filtro temporale:** "a giugno" → solo info giugno"""
 
-# ═══════════════════════════════════════════════════════════════
-# 🆕 NUOVO TEMPLATE: VERIFICA TERRITORIO
-# ═══════════════════════════════════════════════════════════════
-class TerritoryVerificationTemplate(PromptTemplate):
-    """Territory verification rules and guidance"""
-    
-    def render(self, context: PromptContext) -> str:
-        return """**VERIFICA TERRITORIO PARROCCHIALE - REGOLA SPECIALE:**
 
-🎯 PRIORITÀ ASSOLUTA: Se nella sezione "INFORMAZIONI DI RIFERIMENTO" trovi 
-il blocco "VERIFICA TERRITORIO AUTOMATICA", quello è il risultato di una 
-verifica programmatica precisa al 100%.
-
-✅ ISTRUZIONI:
-• Usa ESATTAMENTE le informazioni dalla verifica automatica
-• NON fare supposizioni o interpretazioni personali
-• NON basarti solo sulla knowledge base testuale generica
-• Se la verifica dice "RIENTRA" → l'indirizzo è nel territorio
-• Se la verifica dice "NON RIENTRA" → l'indirizzo NON è nel territorio
-
-❌ Se la verifica automatica NON è presente:
-• Significa che non è stato rilevato un indirizzo specifico nell'email
-• In questo caso usa le informazioni generali dalla knowledge base
-• Se chiede di un indirizzo specifico senza numero civico → chiedi il numero
-
-⚠️ La verifica automatica è SEMPRE corretta. Fidati di essa al 100%."""
-# ═══════════════════════════════════════════════════════════════
-
+# ═══════════════════════════════════════════════════════════════════════════
+# PROMPT ENGINE (Updated)
+# ═══════════════════════════════════════════════════════════════════════════
 
 class PromptEngine:
     """
-    Modular prompt composition engine
+    Enhanced modular prompt composition engine
     
-    Benefits:
-    - ~40% token reduction through deduplication
-    - Easy A/B testing of specific sections
-    - Better maintainability
-    - Dynamic template selection
+    v2.0 Benefits:
+    - Conversational, human-like responses
+    - Multi-question handling
+    - Smart KB extraction
+    - Completeness over brevity
     """
     
     def __init__(self):
-        logger.info("🎨 Initializing PromptEngine...")
+        logger.info("🎨 Initializing Enhanced PromptEngine v2.0...")
         
         # Template pipeline (order matters)
         self.template_pipeline = [
             SystemRoleTemplate(),
             LanguageInstructionTemplate(),
+            
+            # ✨ NEW: KB extraction strategy
+            KnowledgeBaseExtractionTemplate(),
+            
             KnowledgeBaseTemplate(),
             TerritoryVerificationTemplate(),
             SeasonalContextTemplate(),
@@ -257,11 +400,18 @@ class PromptEngine:
             ConversationHistoryTemplate(),
             EmailContentTemplate(),
             NoReplyRulesTemplate(),
+            
+            # ✨ NEW: Conversational guidelines
+            ConversationalGuidelinesTemplate(),
+            
+            # ✨ UPDATED: Enhanced response guidelines
             ResponseGuidelinesTemplate(),
+            
             SpecialCasesTemplate(),
         ]
         
-        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates")
+        logger.info(f"✓ Loaded {len(self.template_pipeline)} templates (v2.0 enhanced)")
+        logger.info("✨ Conversational AI mode ENABLED")
     
     def build_prompt(
         self,
@@ -278,12 +428,7 @@ class PromptEngine:
         salutation: str,
         closing: str
     ) -> str:
-        """
-        Build optimized prompt from templates
-        
-        Returns:
-            Complete prompt (~40% smaller than original)
-        """
+        """Build enhanced conversational prompt"""
         context = PromptContext(
             email_content=email_content,
             email_subject=email_subject,
@@ -304,7 +449,7 @@ class PromptEngine:
         for template in self.template_pipeline:
             try:
                 rendered = template.render(context)
-                if rendered:  # Skip empty sections
+                if rendered:
                     sections.append(rendered)
             except Exception as e:
                 logger.error(f"Error rendering {template.__class__.__name__}: {e}")
@@ -312,14 +457,14 @@ class PromptEngine:
         
         # Compose final prompt
         prompt = "\n\n".join(sections)
-        prompt += "\n\n**Genera la risposta completa:**"
+        prompt += "\n\n**Genera la risposta completa e conversazionale:**"
         
-        logger.debug(f"📐 Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+        logger.debug(f"📐 Prompt size: {len(prompt)} chars")
         
         return prompt
     
     def estimate_tokens(self, text: str) -> int:
-        """Rough token estimation (1 token ≈ 4 characters)"""
+        """Rough token estimation"""
         return len(text) // 4
     
     def get_template_stats(self, context: PromptContext) -> Dict:
