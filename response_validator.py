@@ -94,6 +94,7 @@ class ResponseValidator:
     ✅ Placeholders (incomplete response)
     ✅ Required signature (brand identity)
     ✅ Hallucinated data (emails, phones, times not in KB)
+    ✅ Semantic redundancy (duplicate information)
     
     WHAT WE DON'T CHECK (Redundant):
     ❌ Greetings (forced in prompt)
@@ -138,6 +139,10 @@ class ResponseValidator:
             'immagino'
         ]
         
+        # 🆕 Redundancy detection thresholds
+        self.max_url_mentions = 1  # Same URL should appear max once
+        self.max_semantic_overlap = 0.7  # 70% sentence similarity = redundant
+
         # Language markers (for detection)
         self.language_markers = {
             'it': ['grazie', 'cordiali', 'saluti', 'gentile', 'parrocchia', 'messa', 'vorrei', 'quando'],
@@ -219,6 +224,12 @@ class ResponseValidator:
         warnings.extend(halluc_result['warnings'])
         details['hallucinations'] = halluc_result
         score *= halluc_result['score']
+        
+        # 🆕 === CHECK 6: Semantic Redundancy (IMPORTANT for UX) ===
+        redundancy_result = self._check_semantic_redundancy(response)
+        warnings.extend(redundancy_result['warnings'])
+        details['redundancy'] = redundancy_result
+        score *= redundancy_result['score']
         
         # === DETERMINE VALIDITY ===
         is_valid = len(errors) == 0 and score >= self.min_valid_score
@@ -436,6 +447,157 @@ class ResponseValidator:
             'warnings': warnings,
             'hallucinations': hallucinations
         }
+    
+    def _check_semantic_redundancy(self, response: str) -> Dict:
+        """
+        🆕 Check for semantic redundancies (duplicate information)
+        
+        Detects:
+        1. Same URL mentioned multiple times
+        2. Same information repeated in different words
+        3. Circular references
+        
+        Important for UX: redundant info = poor communication quality
+        """
+        warnings = []
+        score = 1.0
+        redundancy_details = {}
+        
+        # === CHECK 1: URL Duplication ===
+        url_pattern = r'(?:https?://)?(?:www\.)?[\w\-]+\.[\w\-./]+'
+        urls = re.findall(url_pattern, response.lower())
+        
+        if urls:
+            url_counts = Counter(urls)
+            duplicated_urls = {url: count for url, count in url_counts.items() if count > 1}
+            
+            if duplicated_urls:
+                for url, count in duplicated_urls.items():
+                    warnings.append(
+                        f"URL ripetuto {count} volte: '{url}' - rimuovere duplicati o "
+                        f"usare riferimenti incrociati ('come indicato sopra')"
+                    )
+                    score *= 0.85  # Penalty per ogni URL duplicato
+                
+                redundancy_details['duplicate_urls'] = duplicated_urls
+        
+        # === CHECK 2: Sentence-level Redundancy ===
+        sentences = self._split_into_sentences(response)
+        
+        if len(sentences) >= 3:
+            redundant_pairs = []
+            
+            for i in range(len(sentences)):
+                for j in range(i + 1, len(sentences)):
+                    similarity = self._calculate_sentence_similarity(
+                        sentences[i], 
+                        sentences[j]
+                    )
+                    
+                    if similarity > self.max_semantic_overlap:
+                        redundant_pairs.append({
+                            'sentence_1': sentences[i][:80] + '...',
+                            'sentence_2': sentences[j][:80] + '...',
+                            'similarity': similarity
+                        })
+            
+            if redundant_pairs:
+                # Prendi solo le prime 2 coppie più simili
+                redundant_pairs.sort(key=lambda x: x['similarity'], reverse=True)
+                top_redundancies = redundant_pairs[:2]
+                
+                for pair in top_redundancies:
+                    warnings.append(
+                        f"Contenuto ridondante (similarità {pair['similarity']:.0%}): "
+                        f"confronta '{pair['sentence_1']}' con '{pair['sentence_2']}'"
+                    )
+                
+                score *= max(0.70, 1.0 - (len(redundant_pairs) * 0.10))
+                redundancy_details['redundant_sentences'] = len(redundant_pairs)
+        
+        # === CHECK 3: Information Repetition Patterns ===
+        # Rileva pattern come "costo X ... costo X" o "data Y ... data Y"
+        repetition_patterns = [
+            (r'costo[:\s]+([€\d\.,]+)', 'costo'),
+            (r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', 'data'),
+            (r'(\d{1,2}:\d{2})', 'orario'),
+            (r'€\s*(\d+)', 'prezzo')
+        ]
+        
+        for pattern, info_type in repetition_patterns:
+            matches = re.findall(pattern, response, re.IGNORECASE)
+            if len(matches) > 1:
+                # Se trova lo stesso valore 2+ volte
+                value_counts = Counter(matches)
+                repeated_values = {val: count for val, count in value_counts.items() if count > 1}
+                
+                if repeated_values:
+                    for value, count in repeated_values.items():
+                        warnings.append(
+                            f"{info_type.capitalize()} ripetuto {count} volte: '{value}' - "
+                            f"consolidare le informazioni"
+                        )
+                        score *= 0.90
+                    
+                    redundancy_details[f'repeated_{info_type}'] = repeated_values
+        
+        return {
+            'score': score,
+            'warnings': warnings,
+            'redundancy_details': redundancy_details
+        }
+    
+    def _split_into_sentences(self, text: str) -> List[str]:
+        """Split text into sentences (simple heuristic)"""
+        # Remove greetings and signature to focus on content
+        content = text
+        for marker in ['cordiali saluti', 'segreteria parrocchia', 'buongiorno', 'buonasera']:
+            content = re.sub(marker, '', content, flags=re.IGNORECASE)
+        
+        # Split su . ! ? seguito da spazio o newline
+        sentences = re.split(r'[.!?]+\s+', content.strip())
+        
+        # Filtra frasi troppo corte (<15 chars) o vuote
+        return [s.strip() for s in sentences if len(s.strip()) > 15]
+    
+    def _calculate_sentence_similarity(self, sent1: str, sent2: str) -> float:
+        """
+        Calculate semantic similarity between two sentences
+        
+        Uses simple word overlap ratio (Jaccard similarity)
+        For production, consider using sentence embeddings (sentence-transformers)
+        """
+        # Normalizza
+        words1 = set(self._tokenize_sentence(sent1))
+        words2 = set(self._tokenize_sentence(sent2))
+        
+        if not words1 or not words2:
+            return 0.0
+        
+        # Jaccard similarity: intersection / union
+        intersection = len(words1 & words2)
+        union = len(words1 | words2)
+        
+        return intersection / union if union > 0 else 0.0
+    
+    def _tokenize_sentence(self, sentence: str) -> List[str]:
+        """Tokenize sentence into meaningful words"""
+        # Lowercase e rimuovi punteggiatura
+        sentence = sentence.lower()
+        sentence = re.sub(r'[^\w\s]', ' ', sentence)
+        
+        # Split su spazi
+        words = sentence.split()
+        
+        # Rimuovi stopwords comuni italiane
+        stopwords = {
+            'il', 'lo', 'la', 'i', 'gli', 'le', 'un', 'uno', 'una',
+            'di', 'da', 'a', 'in', 'su', 'per', 'con', 'tra', 'fra',
+            'e', 'o', 'ma', 'se', 'che', 'ci', 'si', 'ne',
+            'è', 'sono', 'ho', 'ha', 'hai', 'hanno', 'essere', 'avere'
+        }
+        
+        return [w for w in words if len(w) > 2 and w not in stopwords]
     
     # ========================================================================
     # UTILITY METHODS

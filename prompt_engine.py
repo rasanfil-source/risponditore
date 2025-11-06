@@ -70,7 +70,7 @@ class KnowledgeBaseTemplate(PromptTemplate):
         return f"""**INFORMAZIONI DI RIFERIMENTO:**
 {context.knowledge_base}
 
-**REGOLA FONDAMENTALE:** Usa SOLO informazioni presenti sopra. NON inventare."""
+**REGOLA FONDAMENTALE:** NON inventare."""
 
 
 class SeasonalContextTemplate(PromptTemplate):
@@ -178,7 +178,7 @@ class ResponseGuidelinesTemplate(PromptTemplate):
 
 3. **Contenuto:**
    • Rispondi SOLO a ciò che è chiesto
-   • Usa SOLO info dalla knowledge base
+   • Usa info dalla knowledge base
    • Se info mancano: indica che la segreteria si farà sentire
    • Follow-up (Re:): sii più diretto e conciso
 
