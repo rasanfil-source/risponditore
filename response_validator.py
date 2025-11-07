@@ -230,6 +230,8 @@ class ResponseValidator:
         warnings.extend(redundancy_result['warnings'])
         details['redundancy'] = redundancy_result
         score *= redundancy_result['score']
+
+        
         
         # === DETERMINE VALIDITY ===
         is_valid = len(errors) == 0 and score >= self.min_valid_score
@@ -365,36 +367,65 @@ class ResponseValidator:
     def _check_forbidden_content(self, response: str) -> Dict:
         """
         Check for forbidden phrases and placeholders
-        
+
         Critical: uncertainty phrases or placeholders = incomplete/unreliable response
         """
         errors = []
+        warnings = []
         score = 1.0
-        
+
         response_lower = response.lower()
-        
+
         # Check forbidden phrases (uncertainty indicators)
         found_forbidden = [phrase for phrase in self.forbidden_phrases if phrase in response_lower]
         if found_forbidden:
             errors.append(f"Contains uncertainty phrases: {', '.join(found_forbidden[:2])}")
             score *= 0.50
-        
+
         # Check placeholders (incomplete response)
         found_placeholders = [p for p in self.placeholders if p.lower() in response_lower]
         if found_placeholders:
             errors.append(f"Contains placeholders: {', '.join(found_placeholders)}")
             score = 0.0
-        
+
         # Check NO_REPLY leakage
         if 'NO_REPLY' in response and len(response.strip()) > 20:
             errors.append("Contains 'NO_REPLY' instruction (should have been filtered)")
             score = 0.0
-        
+
+        # 🆕 CHECK VOCE ISTITUZIONALE (prima persona singolare)
+        first_person_singular_patterns = [
+            (r'\ble consiglio\b', 'Le consiglio → Le consigliamo'),
+            (r'\ble suggerisco\b', 'Le suggerisco → Le suggeriamo'),
+            (r'\bposso aiutarla\b', 'posso aiutarla → possiamo aiutarla'),
+            (r'\bposso aiutarti\b', 'posso aiutarti → possiamo aiutarti'),
+            (r'\bsono a disposizione\b', 'sono a disposizione → siamo a disposizione'),
+            (r'\bresto a disposizione\b', 'resto a disposizione → restiamo a disposizione'),
+            (r'\bho verificato\b', 'ho verificato → abbiamo verificato'),
+            (r'\bho controllato\b', 'ho controllato → abbiamo controllato'),
+            (r'\bho controllato\b', 'ho controllato → abbiamo controllato'),
+            (r'\bti consiglio\b', 'ti consiglio → ti consigliamo'),
+        ]
+
+        found_singular = []
+        for pattern, suggestion in first_person_singular_patterns:
+            if re.search(pattern, response_lower):
+                found_singular.append(suggestion)
+
+        if found_singular:
+            warnings.append(
+                f"Voce istituzionale violata (usa singolare invece di plurale): "
+                f"{'; '.join(found_singular[:3])}"
+            )
+            score *= 0.75  # Penalità significativa ma non bloccante
+
         return {
             'score': score,
             'errors': errors,
+            'warnings': warnings,  # 🆕 Assicurati che warnings sia incluso
             'found_forbidden': found_forbidden,
-            'found_placeholders': found_placeholders
+            'found_placeholders': found_placeholders,
+            'found_singular_voice': found_singular  # 🆕 Nuovo campo
         }
     
     def _check_hallucinations(self, response: str, knowledge_base: str) -> Dict:
