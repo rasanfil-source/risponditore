@@ -2,6 +2,7 @@
 Response Templates Module
 Pre-validated templates for common scenarios
 Fase 2B: Improve response consistency and intelligence
+✅ FIXED: Prima persona plurale (voce istituzionale)
 """
 
 from typing import Dict, Optional
@@ -61,7 +62,7 @@ class SacramentRequestTemplate(ResponseTemplate):
         response += specific.get('procedura', '[Procedura dalla knowledge base]') + "\n\n"
         response += "**Per procedere:**\n"
         response += specific.get('prossimi_passi', '[Contattare la segreteria o compilare form]') + "\n\n"
-        response += "Resto a disposizione per qualsiasi chiarimento.\n\n"
+        response += "Restiamo a disposizione per qualsiasi chiarimento.\n\n"  # ✅ FIXED
         response += context.closing + "\n"
         response += "Segreteria Parrocchia Sant'Eugenio"
         
@@ -75,7 +76,7 @@ class AppointmentRequestTemplate(ResponseTemplate):
         hints = "**STRUTTURA RISPOSTA APPUNTAMENTO:**\n\n"
         hints += "[BLOCCO 1: Riconoscimento richiesta]\n"
         hints += "• Breve conferma di aver ricevuto la richiesta\n"
-        hints += "• Es: Ho ricevuto la sua richiesta di appuntamento\n\n"
+        hints += "• Es: Abbiamo ricevuto la sua richiesta di appuntamento\n\n"  # ✅ FIXED
         hints += "[BLOCCO 2: Opzioni concrete]\n"
         hints += "• Orari segreteria/disponibilita\n"
         hints += "• Telefono diretto se urgente\n"
@@ -89,7 +90,7 @@ class AppointmentRequestTemplate(ResponseTemplate):
         specific = context.specific_info
         
         response = context.salutation + "\n\n"
-        response += "Ho ricevuto la sua richiesta di appuntamento.\n\n"
+        response += "Abbiamo ricevuto la sua richiesta di appuntamento.\n\n"  # ✅ FIXED
         response += "**Per fissare l'appuntamento:**\n"
         response += specific.get('opzioni_contatto', '[Opzioni dalla KB: telefono, form, etc.]') + "\n\n"
         response += specific.get('disponibilita', '[Orari segreteria dalla KB]') + "\n\n"
@@ -192,7 +193,7 @@ class ComplaintResponseTemplate(ResponseTemplate):
         response += "**Come procederemo:**\n"
         response += specific.get('azioni_concrete', '[Azioni specifiche per risolvere]') + "\n\n"
         response += specific.get('tempi_follow_up', 'La terremo aggiornata sull\'evoluzione della situazione.') + "\n\n"
-        response += "Resto a disposizione per qualsiasi ulteriore necessita.\n\n"
+        response += "Restiamo a disposizione per qualsiasi ulteriore necessità.\n\n"  # ✅ FIXED
         response += context.closing + "\n"
         response += "Segreteria Parrocchia Sant'Eugenio"
         

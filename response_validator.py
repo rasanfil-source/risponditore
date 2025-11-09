@@ -1,10 +1,10 @@
 """
-Response Validator Module - OPTIMIZED VERSION
+Response Validator Module - OPTIMIZED VERSION v2.1
 Multi-level validation system for AI-generated email responses
-Removes redundant checks (greetings/closings) and focuses on critical validations
+Focuses on critical validations with improved institutional voice checking
 
 Author: Parish Secretary AI System
-Version: 2.0 (Optimized)
+Version: 2.1 (Fixed + Enhanced)
 """
 
 import logging
@@ -93,15 +93,11 @@ class ResponseValidator:
     ✅ Forbidden phrases (hallucination indicators)
     ✅ Placeholders (incomplete response)
     ✅ Required signature (brand identity)
+    ✅ Institutional voice (plural enforcement)
+    ✅ Bureaucratic language detection
     ✅ Hallucinated data (emails, phones, times not in KB)
     ✅ Semantic redundancy (duplicate information)
-    
-    WHAT WE DON'T CHECK (Redundant):
-    ❌ Greetings (forced in prompt)
-    ❌ Closings (forced in prompt)
-    ❌ Excessive repetition (Gemini rarely does this)
-    
-    This removes ~40% of checks while maintaining effectiveness.
+    ✅ Verbosity and repetition
     """
     
     # Class-level constants
@@ -118,7 +114,7 @@ class ResponseValidator:
         Args:
             strict_mode: If True, use higher validation threshold (0.8 vs 0.6)
         """
-        logger.info("🔍 Initializing Optimized ResponseValidator...")
+        logger.info("🔍 Initializing Optimized ResponseValidator v2.1...")
         
         self.strict_mode = strict_mode
         self.min_valid_score = self.STRICT_MODE_SCORE if strict_mode else self.MIN_VALID_SCORE
@@ -139,9 +135,9 @@ class ResponseValidator:
             'immagino'
         ]
         
-        # 🆕 Redundancy detection thresholds
-        self.max_url_mentions = 1  # Same URL should appear max once
-        self.max_semantic_overlap = 0.7  # 70% sentence similarity = redundant
+        # Redundancy detection thresholds
+        self.max_url_mentions = 1
+        self.max_semantic_overlap = 0.7
 
         # Language markers (for detection)
         self.language_markers = {
@@ -161,7 +157,7 @@ class ResponseValidator:
             re.IGNORECASE
         )
         
-        logger.info(f"✓ Optimized ResponseValidator initialized (strict_mode={strict_mode})")
+        logger.info(f"✓ Optimized ResponseValidator v2.1 initialized (strict_mode={strict_mode})")
         logger.info(f"   Min valid score: {self.min_valid_score}")
     
     def validate_response(
@@ -215,6 +211,7 @@ class ResponseValidator:
         # === CHECK 4: Forbidden Content (CRITICAL) ===
         content_result = self._check_forbidden_content(response)
         errors.extend(content_result['errors'])
+        warnings.extend(content_result['warnings'])
         details['content'] = content_result
         score *= content_result['score']
         
@@ -225,13 +222,17 @@ class ResponseValidator:
         details['hallucinations'] = halluc_result
         score *= halluc_result['score']
         
-        # 🆕 === CHECK 6: Semantic Redundancy (IMPORTANT for UX) ===
+        # === CHECK 6: Semantic Redundancy (IMPORTANT for UX) ===
         redundancy_result = self._check_semantic_redundancy(response)
         warnings.extend(redundancy_result['warnings'])
         details['redundancy'] = redundancy_result
         score *= redundancy_result['score']
 
-        
+        # === CHECK 7: Verbosity & Repetition ===
+        verbosity_result = self._check_verbosity_and_repetition(response)
+        warnings.extend(verbosity_result['warnings'])
+        details['verbosity'] = verbosity_result
+        score *= verbosity_result['score']
         
         # === DETERMINE VALIDITY ===
         is_valid = len(errors) == 0 and score >= self.min_valid_score
@@ -273,11 +274,7 @@ class ResponseValidator:
     # ========================================================================
     
     def _check_length(self, response: str) -> Dict:
-        """
-        Check response length
-        
-        Critical UX issue: too short = unhelpful, too long = overwhelming
-        """
+        """Check response length - Critical UX issue"""
         errors = []
         warnings = []
         score = 1.0
@@ -302,11 +299,7 @@ class ResponseValidator:
         }
     
     def _check_language(self, response: str, expected_lang: str) -> Dict:
-        """
-        Check language consistency
-        
-        Critical for multilingual support: wrong language = unusable response
-        """
+        """Check language consistency - Critical for multilingual"""
         errors = []
         warnings = []
         score = 1.0
@@ -333,7 +326,7 @@ class ResponseValidator:
                 score *= 0.85
         
         # Check for mixed languages
-        high_scoring_langs = [lang for lang, score in marker_scores.items() if score >= 3]
+        high_scoring_langs = [lang for lang, sc in marker_scores.items() if sc >= 3]
         if len(high_scoring_langs) > 1:
             warnings.append(f"Possible mixed languages: {', '.join(high_scoring_langs)}")
             score *= 0.85
@@ -347,11 +340,7 @@ class ResponseValidator:
         }
     
     def _check_signature(self, response: str) -> Dict:
-        """
-        Check required signature
-        
-        Critical for brand identity: missing signature = unprofessional
-        """
+        """Check required signature - Critical for brand identity"""
         errors = []
         score = 1.0
         
@@ -366,9 +355,8 @@ class ResponseValidator:
     
     def _check_forbidden_content(self, response: str) -> Dict:
         """
-        Check for forbidden phrases and placeholders
-
-        Critical: uncertainty phrases or placeholders = incomplete/unreliable response
+        Check for forbidden phrases, placeholders, institutional voice, bureaucratic language
+        IMPROVED: Institutional voice now BLOCKING
         """
         errors = []
         warnings = []
@@ -393,7 +381,7 @@ class ResponseValidator:
             errors.append("Contains 'NO_REPLY' instruction (should have been filtered)")
             score = 0.0
 
-        # 🆕 CHECK VOCE ISTITUZIONALE (prima persona singolare)
+        # CHECK VOCE ISTITUZIONALE (prima persona singolare) - NOW BLOCKING
         first_person_singular_patterns = [
             (r'\ble consiglio\b', 'Le consiglio → Le consigliamo'),
             (r'\ble suggerisco\b', 'Le suggerisco → Le suggeriamo'),
@@ -403,8 +391,9 @@ class ResponseValidator:
             (r'\bresto a disposizione\b', 'resto a disposizione → restiamo a disposizione'),
             (r'\bho verificato\b', 'ho verificato → abbiamo verificato'),
             (r'\bho controllato\b', 'ho controllato → abbiamo controllato'),
-            (r'\bho controllato\b', 'ho controllato → abbiamo controllato'),
             (r'\bti consiglio\b', 'ti consiglio → ti consigliamo'),
+            (r'\bmi scuso\b', 'mi scuso → ci scusiamo'),
+            (r'\bringrazio\b', 'ringrazio → ringraziamo'),
         ]
 
         found_singular = []
@@ -413,33 +402,55 @@ class ResponseValidator:
                 found_singular.append(suggestion)
 
         if found_singular:
-            warnings.append(
-                f"Voce istituzionale violata (usa singolare invece di plurale): "
-                f"{'; '.join(found_singular[:3])}"
+            # NOW BLOCKING ERROR (was warning)
+            errors.append(
+                f"VOCE ISTITUZIONALE VIOLATA: usa singolare invece di plurale. "
+                f"Correzioni richieste: {'; '.join(found_singular[:3])}"
             )
-            score *= 0.75  # Penalità significativa ma non bloccante
+            score *= 0.40  # Heavy penalty
+
+        # DETECTION FORMULE BUROCRATICHE (warning only)
+        bureaucratic_patterns = [
+            (r'in merito alla (?:sua )?(?:cortese )?richiesta', 'troppo burocratico'),
+            (r'le confermiamo che', 'basta dire direttamente l\'info'),
+            (r'le comunichiamo che', 'basta dire direttamente l\'info'),
+            (r'è possibile procedere con', 'troppo verboso, usa "Può..."'),
+            (r'la ringraziamo (?:sentitamente )?per (?:averci contattato|aver contattato)',
+             'ringraziamento eccessivo'),
+            (r'in data \d{1,2}', 'usa "il" invece di "in data"'),
+            (r'presso l[\'o]\s*\w+\s+parrocchiale', 'troppo formale'),
+            (r'restiamo (?:a )?(?:sua )?completa disposizione', 'troppo formale'),
+        ]
+        
+        found_bureaucratic = []
+        for pattern, issue in bureaucratic_patterns:
+            if re.search(pattern, response_lower):
+                found_bureaucratic.append(issue)
+        
+        if found_bureaucratic:
+            warnings.append(
+                f"Tono eccessivamente formale/burocratico: {'; '.join(found_bureaucratic[:2])}"
+            )
+            score *= 0.85
 
         return {
             'score': score,
             'errors': errors,
-            'warnings': warnings,  # 🆕 Assicurati che warnings sia incluso
+            'warnings': warnings,
             'found_forbidden': found_forbidden,
             'found_placeholders': found_placeholders,
-            'found_singular_voice': found_singular  # 🆕 Nuovo campo
+            'found_singular_voice': found_singular,
+            'found_bureaucratic': found_bureaucratic
         }
-    
+
     def _check_hallucinations(self, response: str, knowledge_base: str) -> Dict:
-        """
-        Check for hallucinated data (invented information not in KB)
-        
-        Critical: hallucinated contact info = misinformation to users
-        """
+        """Check for hallucinated data - Critical: misinformation to users"""
         errors = []
         warnings = []
         score = 1.0
         hallucinations = {}
         
-        # === Check 1: Times ===
+        # Check 1: Times
         time_pattern = r'\b\d{1,2}[:.]\d{2}\b'
         response_times = set(re.findall(time_pattern, response))
         kb_times = set(re.findall(time_pattern, knowledge_base))
@@ -450,7 +461,7 @@ class ResponseValidator:
             score *= 0.85
             hallucinations['times'] = list(invented_times)
         
-        # === Check 2: Email Addresses ===
+        # Check 2: Email Addresses
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'
         response_emails = set(e.lower() for e in re.findall(email_pattern, response, re.IGNORECASE))
         kb_emails = set(e.lower() for e in re.findall(email_pattern, knowledge_base, re.IGNORECASE))
@@ -461,7 +472,7 @@ class ResponseValidator:
             score *= 0.50
             hallucinations['emails'] = list(invented_emails)
         
-        # === Check 3: Phone Numbers ===
+        # Check 3: Phone Numbers
         phone_pattern = r'\b\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b'
         response_phones = set(re.findall(phone_pattern, response))
         kb_phones = set(re.findall(phone_pattern, knowledge_base))
@@ -480,21 +491,12 @@ class ResponseValidator:
         }
     
     def _check_semantic_redundancy(self, response: str) -> Dict:
-        """
-        🆕 Check for semantic redundancies (duplicate information)
-        
-        Detects:
-        1. Same URL mentioned multiple times
-        2. Same information repeated in different words
-        3. Circular references
-        
-        Important for UX: redundant info = poor communication quality
-        """
+        """Check for semantic redundancies - Important for UX"""
         warnings = []
         score = 1.0
         redundancy_details = {}
         
-        # === CHECK 1: URL Duplication ===
+        # CHECK 1: URL Duplication
         url_pattern = r'(?:https?://)?(?:www\.)?[\w\-]+\.[\w\-./]+'
         urls = re.findall(url_pattern, response.lower())
         
@@ -505,14 +507,13 @@ class ResponseValidator:
             if duplicated_urls:
                 for url, count in duplicated_urls.items():
                     warnings.append(
-                        f"URL ripetuto {count} volte: '{url}' - rimuovere duplicati o "
-                        f"usare riferimenti incrociati ('come indicato sopra')"
+                        f"URL ripetuto {count} volte: '{url}' - rimuovere duplicati"
                     )
-                    score *= 0.85  # Penalty per ogni URL duplicato
+                    score *= 0.85
                 
                 redundancy_details['duplicate_urls'] = duplicated_urls
         
-        # === CHECK 2: Sentence-level Redundancy ===
+        # CHECK 2: Sentence-level Redundancy
         sentences = self._split_into_sentences(response)
         
         if len(sentences) >= 3:
@@ -520,10 +521,7 @@ class ResponseValidator:
             
             for i in range(len(sentences)):
                 for j in range(i + 1, len(sentences)):
-                    similarity = self._calculate_sentence_similarity(
-                        sentences[i], 
-                        sentences[j]
-                    )
+                    similarity = self._calculate_sentence_similarity(sentences[i], sentences[j])
                     
                     if similarity > self.max_semantic_overlap:
                         redundant_pairs.append({
@@ -533,21 +531,19 @@ class ResponseValidator:
                         })
             
             if redundant_pairs:
-                # Prendi solo le prime 2 coppie più simili
                 redundant_pairs.sort(key=lambda x: x['similarity'], reverse=True)
                 top_redundancies = redundant_pairs[:2]
                 
                 for pair in top_redundancies:
                     warnings.append(
                         f"Contenuto ridondante (similarità {pair['similarity']:.0%}): "
-                        f"confronta '{pair['sentence_1']}' con '{pair['sentence_2']}'"
+                        f"'{pair['sentence_1']}' vs '{pair['sentence_2']}'"
                     )
                 
                 score *= max(0.70, 1.0 - (len(redundant_pairs) * 0.10))
                 redundancy_details['redundant_sentences'] = len(redundant_pairs)
         
-        # === CHECK 3: Information Repetition Patterns ===
-        # Rileva pattern come "costo X ... costo X" o "data Y ... data Y"
+        # CHECK 3: Information Repetition Patterns
         repetition_patterns = [
             (r'costo[:\s]+([€\d\.,]+)', 'costo'),
             (r'(\d{1,2}[/\-]\d{1,2}[/\-]\d{2,4})', 'data'),
@@ -558,15 +554,13 @@ class ResponseValidator:
         for pattern, info_type in repetition_patterns:
             matches = re.findall(pattern, response, re.IGNORECASE)
             if len(matches) > 1:
-                # Se trova lo stesso valore 2+ volte
                 value_counts = Counter(matches)
                 repeated_values = {val: count for val, count in value_counts.items() if count > 1}
                 
                 if repeated_values:
                     for value, count in repeated_values.items():
                         warnings.append(
-                            f"{info_type.capitalize()} ripetuto {count} volte: '{value}' - "
-                            f"consolidare le informazioni"
+                            f"{info_type.capitalize()} ripetuto {count} volte: '{value}'"
                         )
                         score *= 0.90
                     
@@ -578,34 +572,75 @@ class ResponseValidator:
             'redundancy_details': redundancy_details
         }
     
+    def _check_verbosity_and_repetition(self, response: str) -> Dict:
+        """Check verbosity and repetitions"""
+        warnings = []
+        score = 1.0
+        
+        sentences = self._split_into_sentences(response)
+        
+        # Check 1: Long sentences (>25 words)
+        long_sentences = []
+        for sent in sentences:
+            word_count = len(sent.split())
+            if word_count > 25:
+                long_sentences.append((sent[:50] + '...', word_count))
+        
+        if long_sentences:
+            warnings.append(
+                f"Frasi troppo lunghe ({len(long_sentences)} frasi >25 parole). "
+                f"Es: '{long_sentences[0][0]}' ({long_sentences[0][1]} parole)"
+            )
+            score *= 0.85
+        
+        # Check 2: Repeated key words
+        words = self._tokenize_sentence(response.lower())
+        word_freq = Counter(words)
+        
+        key_nouns = ['catechesi', 'incontro', 'orario', 'giorno', 'data', 
+                      'informazioni', 'appuntamento', 'corso']
+        
+        repeated_words = []
+        for noun in key_nouns:
+            if noun in word_freq and word_freq[noun] > 2:
+                repeated_words.append(f"'{noun}' x{word_freq[noun]}")
+        
+        if repeated_words:
+            warnings.append(
+                f"Parole ripetute eccessivamente: {', '.join(repeated_words)}"
+            )
+            score *= 0.90
+        
+        # Check 3: Subordinate chains
+        subordinate_chain_pattern = r'\b(che|della|del|degli|delle)\s+\w+\s+(che|della|del|degli|delle)\s+\w+\s+(che|della|del)'
+        if re.search(subordinate_chain_pattern, response.lower()):
+            warnings.append("Frasi con troppe subordinate annidate")
+            score *= 0.85
+        
+        return {
+            'score': score,
+            'warnings': warnings,
+            'long_sentences_count': len(long_sentences),
+            'repeated_words': repeated_words
+        }
+    
     def _split_into_sentences(self, text: str) -> List[str]:
-        """Split text into sentences (simple heuristic)"""
-        # Remove greetings and signature to focus on content
+        """Split text into sentences"""
         content = text
         for marker in ['cordiali saluti', 'segreteria parrocchia', 'buongiorno', 'buonasera']:
             content = re.sub(marker, '', content, flags=re.IGNORECASE)
         
-        # Split su . ! ? seguito da spazio o newline
         sentences = re.split(r'[.!?]+\s+', content.strip())
-        
-        # Filtra frasi troppo corte (<15 chars) o vuote
         return [s.strip() for s in sentences if len(s.strip()) > 15]
     
     def _calculate_sentence_similarity(self, sent1: str, sent2: str) -> float:
-        """
-        Calculate semantic similarity between two sentences
-        
-        Uses simple word overlap ratio (Jaccard similarity)
-        For production, consider using sentence embeddings (sentence-transformers)
-        """
-        # Normalizza
+        """Calculate semantic similarity (Jaccard)"""
         words1 = set(self._tokenize_sentence(sent1))
         words2 = set(self._tokenize_sentence(sent2))
         
         if not words1 or not words2:
             return 0.0
         
-        # Jaccard similarity: intersection / union
         intersection = len(words1 & words2)
         union = len(words1 | words2)
         
@@ -613,14 +648,10 @@ class ResponseValidator:
     
     def _tokenize_sentence(self, sentence: str) -> List[str]:
         """Tokenize sentence into meaningful words"""
-        # Lowercase e rimuovi punteggiatura
         sentence = sentence.lower()
         sentence = re.sub(r'[^\w\s]', ' ', sentence)
-        
-        # Split su spazi
         words = sentence.split()
         
-        # Rimuovi stopwords comuni italiane
         stopwords = {
             'il', 'lo', 'la', 'i', 'gli', 'le', 'un', 'uno', 'una',
             'di', 'da', 'a', 'in', 'su', 'per', 'con', 'tra', 'fra',
@@ -637,11 +668,14 @@ class ResponseValidator:
     def get_validation_stats(self) -> Dict[str, any]:
         """Get validator configuration statistics"""
         return {
+            'version': '2.1',
             'strict_mode': self.strict_mode,
             'min_valid_score': self.min_valid_score,
             'min_length': self.MIN_LENGTH_CHARS,
             'max_length_warning': self.WARNING_MAX_LENGTH,
             'forbidden_phrases_count': len(self.forbidden_phrases),
             'supported_languages': list(self.language_markers.keys()),
-            'placeholders_count': len(self.placeholders)
+            'placeholders_count': len(self.placeholders),
+            'institutional_voice_blocking': True,
+            'bureaucratic_detection': True
         }

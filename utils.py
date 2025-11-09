@@ -573,7 +573,33 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
         True if email should be ignored
     """
     text = (subject + ' ' + content).lower()
+
+    # CHECK SPECIFICO: Comunicazioni interne (PRIMA di altri check)
+    internal_patterns = [
+        r'alla\s+(?:cortese\s+)?attenzione\s+(?:di\s+)?(?:don\s+)?giandomenic',
+        r'alla\s+c\.?a\.?\s+(?:di\s+)?giandomenic',
+        r'per\s+(?:don\s+)?giandomenic',
+    ]
     
+    for pattern in internal_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            logger.info(f"Email ignored: internal communication detected (pattern: '{pattern}')")
+            return True
+
+    # Check keywords esistenti
+    for keyword in ignore_keywords:
+        if keyword.lower() in text:
+            logger.info(f"Email ignored due to keyword: '{keyword}'")
+            return True
+    
+    # Check senders esistenti
+    for sender in ignore_senders:
+        if sender.lower() in sender_email.lower():
+            logger.info(f"Email ignored due to sender: '{sender}'")
+            return True
+    
+    return False
+
     # Check keywords
     for keyword in ignore_keywords:
         if keyword.lower() in text:
