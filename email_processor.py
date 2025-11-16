@@ -1,8 +1,9 @@
 """
 Email processor module - Orchestrates the email processing pipeline
 Coordinates filtering, classification, and response generation
-🔧 FIXED: Smart KB truncation, improved error handling, better logging
-✨ NEW: Advanced response validation with ResponseValidator
+✅ CLEANED VERSION: Removed duplications and deprecated methods
+✅ FIXED: Better territory validation logging
+✅ FIXED: Uses only ResponseValidator (removed legacy validation)
 """
 
 import logging
@@ -11,7 +12,7 @@ from gmail_service import GmailManager
 from sheets_service import SheetsManager
 from gemini_service import GeminiService
 from nlp_classifier import EmailClassifier
-from response_validator import ResponseValidator  # ✅ NEW IMPORT
+from response_validator import ResponseValidator
 from utils import (
     should_ignore_email,
     apply_replacements,
@@ -25,14 +26,14 @@ logger = logging.getLogger(__name__)
 
 class EmailProcessor:
     """
-    Orchestrates the email processing pipeline:
-    Gmail → Fast Filters → NLP Classification → Knowledge Base → Gemini → Response Validation → Send
+    Orchestrates the email processing pipeline
     
-    🔧 IMPROVEMENTS:
+    ✅ IMPROVEMENTS:
+    - Removed deprecated _validate_response method
+    - Added territory validation logging
+    - Uses only ResponseValidator for all validation
     - Smart KB truncation preserving structure
     - Better error handling with error labels
-    - Improved logging and statistics
-    ✨ NEW: Advanced multi-level response validation
     """
 
     def __init__(self):
@@ -63,7 +64,6 @@ class EmailProcessor:
         self.classifier = EmailClassifier()
         logger.info("✓ Classifier initialized")
         
-        # ✅ NEW: Initialize Response Validator
         self.validator = ResponseValidator()
         logger.info("✓ Response validator initialized")
         
@@ -182,7 +182,7 @@ class EmailProcessor:
                 'filtered': 0,
                 'errors': 0,
                 'dry_run_count': 0,
-                'validation_failed': 0  # ✅ NEW
+                'validation_failed': 0
             }
 
             for i, thread in enumerate(threads, 1):
@@ -201,7 +201,7 @@ class EmailProcessor:
                     elif result['status'] == 'filtered':
                         results['filtered'] += 1
                         logger.info(f"⊘ Thread {i}: Filtered ({result.get('reason', 'unknown')})")
-                    elif result['status'] == 'validation_failed':  # ✅ NEW
+                    elif result['status'] == 'validation_failed':
                         results['validation_failed'] += 1
                         logger.warning(f"❌ Thread {i}: Validation failed (score: {result.get('validation_score', 0):.2f})")
                     elif result['status'] == 'skipped':
@@ -213,7 +213,7 @@ class EmailProcessor:
                     logger.error(f"❌ Error processing thread {i} ({thread['id']}): {e}", exc_info=True)
                     results['errors'] += 1
                     
-                    # 🔧 FIX: Add error label instead of processing label on failures
+                    # Add error label instead of processing label on failures
                     try:
                         error_label = config.ERROR_LABEL_NAME
                         self.gmail.add_label_to_thread(thread['id'], error_label)
@@ -230,7 +230,7 @@ class EmailProcessor:
             if results['dry_run_count'] > 0:
                 logger.info(f"   🔴 Dry run: {results['dry_run_count']}")
             logger.info(f"   ⊘ Filtered: {results['filtered']}")
-            if results['validation_failed'] > 0:  # ✅ NEW
+            if results['validation_failed'] > 0:
                 logger.info(f"   ❌ Validation failed: {results['validation_failed']}")
             logger.info(f"   ❌ Errors: {results['errors']}")
             logger.info(f"{'='*60}\n")
@@ -240,7 +240,7 @@ class EmailProcessor:
                 'processed': results['processed'],
                 'replied': results['replied'],
                 'filtered': results['filtered'],
-                'validation_failed': results['validation_failed'],  # ✅ NEW
+                'validation_failed': results['validation_failed'],
                 'errors': results['errors'],
                 'dry_run': config.DRY_RUN,
                 'dry_run_count': results['dry_run_count']
@@ -262,7 +262,7 @@ class EmailProcessor:
         2. Fast domain/keyword filters
         3. NLP classification
         4. Gemini response generation
-        5. Advanced response validation  ✅ NEW
+        5. Advanced response validation
         6. Post-processing and sending
 
         Args:
@@ -352,7 +352,7 @@ class EmailProcessor:
             
             logger.info(f"      Knowledge base with temporal context: {len(final_knowledge_base)} chars")
             
-            # 🔧 FIX: Smart truncation preserving structure
+            # Smart truncation preserving structure
             if len(final_knowledge_base) > config.MAX_KNOWLEDGE_BASE_CHARS:
                 final_knowledge_base = self._smart_truncate_kb(final_knowledge_base)
 
@@ -381,14 +381,14 @@ class EmailProcessor:
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'filtered', 'reason': 'gemini_no_reply'}
 
-            # ✅✅✅ === STAGE 5: ADVANCED RESPONSE VALIDATION === ✅✅✅
+            # === STAGE 5: ADVANCED RESPONSE VALIDATION ===
             logger.info(f"   🔍 Stage 5: Advanced response validation...")
             
             # Detect language for validation
             detected_language = self.gemini._detect_email_language(
-            message_details['body'], 
-            message_details['subject']
-)
+                message_details['body'], 
+                message_details['subject']
+            )
             
             # Perform comprehensive validation
             validation_result = self.validator.validate_response(
@@ -407,7 +407,7 @@ class EmailProcessor:
             # Check if validation passed
             if not validation_result.is_valid:
                 logger.warning(f"   ❌ Response FAILED validation!")
-                logger.warning(f"      Overall score: {validation_result.score:.2f} (threshold: {self.validator.MIN_VALID_SCORE})")
+                logger.warning(f"      Overall score: {validation_result.score:.2f} (threshold: {self.validator.min_valid_score})")
                 
                 # Log errors
                 for i, error in enumerate(validation_result.errors, 1):
@@ -429,8 +429,8 @@ class EmailProcessor:
                     'status': 'validation_failed',
                     'reason': 'response_quality_too_low',
                     'validation_score': validation_result.score,
-                    'errors': validation_result.errors[:3],  # First 3 errors
-                    'warnings': validation_result.warnings[:3]  # First 3 warnings
+                    'errors': validation_result.errors[:3],
+                    'warnings': validation_result.warnings[:3]
                 }
             
             # Validation passed!
@@ -484,7 +484,7 @@ class EmailProcessor:
 
     def _smart_truncate_kb(self, kb_text: str) -> str:
         """
-        🔧 FIX: Smart truncation that preserves entry structure
+        Smart truncation that preserves entry structure
         
         Args:
             kb_text: Full knowledge base text
@@ -546,55 +546,6 @@ class EmailProcessor:
         logger.info(f"      Final KB size: {len(result)} chars")
         
         return result
-
-    def _validate_response(self, response: str, message_details: Dict) -> bool:
-        """
-        DEPRECATED: Legacy validation method (kept for compatibility)
-        
-        This method is now replaced by ResponseValidator in Stage 5.
-        Keeping for backwards compatibility but no longer used in pipeline.
-        
-        Args:
-            response: Generated response text
-            message_details: Original message details
-            
-        Returns:
-            True if response is valid
-        """
-        # Check minimum length
-        if len(response.strip()) < 50:
-            logger.warning(f"      ✗ Response too short ({len(response)} chars)")
-            return False
-
-        # Check maximum length
-        if len(response.strip()) > 3000:
-            logger.warning(f"      ⚠️  Response very long ({len(response)} chars)")
-            # Non-blocking, just warning
-
-        # Check for greeting (warning only)
-        required_greetings = ['buongiorno', 'buonasera', 'buon pomeriggio', 'gentile', 'buona', 
-                             'good morning', 'good afternoon', 'good evening', 'dear',
-                             'buenos días', 'buenas tardes', 'buenas noches']
-        has_greeting = any(greet in response.lower()[:150] for greet in required_greetings)
-
-        if not has_greeting:
-            logger.warning(f"      ⚠️  Response missing greeting (non-blocking)")
-
-        # Check for closing (warning only)
-        closing_phrases = ['cordiali saluti', 'distinti saluti', 'kind regards', 
-                          'best regards', 'cordiales saludos']
-        has_closing = any(closing in response.lower() for closing in closing_phrases)
-        
-        if not has_closing:
-            logger.warning(f"      ⚠️  Response missing closing (non-blocking)")
-
-        # Check for "NO_REPLY" leaking through
-        if 'NO_REPLY' in response.upper() and len(response) > 20:
-            logger.warning(f"      ✗ Response contains NO_REPLY instruction (should be filtered)")
-            return False
-
-        logger.info(f"      ✓ Validation passed ({len(response)} chars)")
-        return True
     
     def get_statistics(self) -> Dict:
         """

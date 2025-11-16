@@ -1,6 +1,7 @@
 """
 Territory validation module for parish addresses
 Verifies if an address is within parish boundaries
+✅ FIXED: Complete regex patterns for address detection
 """
 
 import re
@@ -74,23 +75,32 @@ class TerritoryValidator:
     def extract_address_from_text(text: str) -> tuple:
         """
         Extract street name and civic number from text
+        
+        ✅ FIXED: Complete patterns including "abito a"
+        
         Returns: (street_name, civic_number) or (None, None)
         """
-        # Pattern per indirizzi italiani
+        # ✅ Pattern per indirizzi italiani (CORRETTI)
         patterns = [
-            # Cattura: tipo via + nome + opzionalmente (n./civico) + numero
+            # Pattern 1: Indirizzo diretto
+            # Esempio: "via Rossi 10", "viale Belle Arti n. 5"
             r'((?:via|viale|piazza|piazzale|largo|lungotevere|salita)\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+(?:\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+)*)\s+(?:n\.?\s*|civico\s+)?(\d+)',
             
-            # Con prefisso "abito in/al"
-            r'(?:in|abito\s+in|abito\s+al|al)\s+((?:via|viale|piazza|piazzale|largo|lungotevere|salita)\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+(?:\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+)*)\s+(?:n\.?\s*|civico\s+)?(\d+)',
+            # Pattern 2: Con prefissi comuni
+            # ✅ FIXED: "abito a" con spazio (non solo "a")
+            # Esempio: "abito in via Rossi 10", "abito al viale Verdi 5", "abito a via Bianchi 3"
+            r'(?:in|abito\s+in|abito\s+al|abito\s+a|al)\s+((?:via|viale|piazza|piazzale|largo|lungotevere|salita)\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+(?:\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+)*)\s+(?:n\.?\s*|civico\s+)?(\d+)',
         ]
         
         for pattern in patterns:
             match = re.search(pattern, text, re.IGNORECASE)
             if match:
                 street = match.group(1).strip()
+                # Remove trailing "civico" if present
                 street = re.sub(r'\s+civico$', '', street, flags=re.IGNORECASE).strip()
                 civic = int(match.group(2))
+                
+                logger.debug(f"Address detected: '{street}' n. {civic}")
                 return (street, civic)
         
         return (None, None)
@@ -199,3 +209,64 @@ class TerritoryValidator:
             'address_found': False,
             'verification': None
         }
+
+
+# ========================================================================
+# TESTING FUNCTION
+# ========================================================================
+
+def test_territory_validator():
+    """
+    Test function for TerritoryValidator
+    
+    Run this to verify patterns work correctly
+    """
+    validator = TerritoryValidator()
+    
+    print("="*70)
+    print("TESTING TERRITORY VALIDATOR - REGEX PATTERNS")
+    print("="*70)
+    
+    test_cases = [
+        # Positive cases (should detect)
+        ("Abito in via Rossi 10", "via Rossi", 10),
+        ("abito a via delle Belle Arti 5", "viale delle Belle Arti", 5),
+        ("Abito al viale Tiziano 20", "viale Tiziano", 20),
+        ("Il mio indirizzo è via Flaminia 150", "via Flaminia", 150),
+        ("Vivo in piazza Marina n. 30", "piazza Marina", 30),
+        
+        # Negative cases (should NOT match incorrectly)
+        ("La casa a via Verdi è bella", None, None),  # "a via" without "abito"
+        ("Vado a via Roma domani", None, None),  # "a via" in different context
+    ]
+    
+    print("\n✅ POSITIVE TEST CASES (should detect address):")
+    for text, expected_street, expected_civic in test_cases[:5]:
+        street, civic = validator.extract_address_from_text(text)
+        
+        if street and civic:
+            status = "✓" if civic == expected_civic else "✗"
+            print(f"{status} '{text}'")
+            print(f"   → Detected: {street} n. {civic}")
+        else:
+            print(f"✗ '{text}'")
+            print(f"   → NOT DETECTED (expected: {expected_street} {expected_civic})")
+        print()
+    
+    print("\n❌ NEGATIVE TEST CASES (should NOT detect):")
+    for text, _, _ in test_cases[5:]:
+        street, civic = validator.extract_address_from_text(text)
+        
+        if street and civic:
+            print(f"✗ '{text}'")
+            print(f"   → INCORRECTLY DETECTED: {street} n. {civic}")
+        else:
+            print(f"✓ '{text}'")
+            print(f"   → Correctly NOT detected")
+        print()
+    
+    print("="*70)
+
+
+if __name__ == "__main__":
+    test_territory_validator()

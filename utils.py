@@ -1,7 +1,8 @@
 """
 Utility functions for date calculations, filters, and text processing
 Enhanced with intelligent temporal context generation and robust error handling
-🔧 UPDATED: Dynamic summer period calculation
+✅ FIXED: Support for multiple date formats (DD/MM/YYYY, DD-MM-YYYY, etc.)
+✅ FIXED: Better date validation to prevent invalid dates
 """
 
 from datetime import datetime, timedelta
@@ -155,7 +156,7 @@ def get_current_season(date_obj: datetime = None) -> str:
     """
     Determine current season (summer/winter) with dynamic summer period
     
-    🔧 UPDATED: Summer period is calculated dynamically:
+    Summer period is calculated dynamically:
     - Start: Monday after June 26
     - End: Monday after August 31
     
@@ -310,14 +311,16 @@ def get_holy_family_sunday(year: int) -> Optional[datetime.date]:
 
 
 # ============================================================================
-# DATE EXTRACTION FROM KNOWLEDGE BASE (FIXED)
+# ✅ FIXED: DATE EXTRACTION WITH MULTIPLE FORMATS
 # ============================================================================
 
 def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]]:
     """
-    Extract dates from knowledge base text (deduplicated and validated)
+    ✅ FIXED: Extract dates from knowledge base supporting multiple formats
     
-    🔧 FIX: Added validation to prevent invalid dates (e.g., 31 Feb)
+    Supported formats:
+    - Textual: "4 ottobre 2025", "ottobre 2025"
+    - Numeric: "04/10/2025", "4-10-2025", "04.10.2025"
     
     Args:
         kb_text: Knowledge base text
@@ -328,40 +331,57 @@ def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]
     dates_dict = {}  # Use dict to deduplicate by date
     now = datetime.now(ITALIAN_TZ)
     
-    # Patterns for Italian dates
-    patterns = [
-        # "4 ottobre", "19 ottobre 2025"
-        r'(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)(?:\s+(\d{4}))?',
-        # "ottobre 2025"
-        r'(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})',
-    ]
-    
+    # Month mapping for Italian months
     month_map = {
         'gennaio': 1, 'febbraio': 2, 'marzo': 3, 'aprile': 4,
         'maggio': 5, 'giugno': 6, 'luglio': 7, 'agosto': 8,
         'settembre': 9, 'ottobre': 10, 'novembre': 11, 'dicembre': 12
     }
     
-    for pattern in patterns:
+    # ✅ FIXED: Extended patterns for multiple formats
+    patterns = [
+        # Format 1: "4 ottobre 2025" or "4 ottobre"
+        (r'(\d{1,2})\s+(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)(?:\s+(\d{4}))?', 'textual_day_month'),
+        
+        # Format 2: "ottobre 2025"
+        (r'(gennaio|febbraio|marzo|aprile|maggio|giugno|luglio|agosto|settembre|ottobre|novembre|dicembre)\s+(\d{4})', 'textual_month_year'),
+        
+        # Format 3: ✅ NEW - Numeric formats
+        # "04/10/2025" or "4/10/2025" or "04-10-2025" or "04.10.2025"
+        (r'(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{4})', 'numeric_dmy'),
+    ]
+    
+    for pattern, format_type in patterns:
         for match in re.finditer(pattern, kb_text, re.IGNORECASE):
             try:
-                # Parse date components
-                if len(match.groups()) == 3:  # "4 ottobre 2025" or "4 ottobre"
+                # Parse based on format type
+                if format_type == 'textual_day_month':
+                    # "4 ottobre 2025" or "4 ottobre"
                     day = int(match.group(1))
                     month = month_map[match.group(2).lower()]
                     year = int(match.group(3)) if match.group(3) else now.year
-                elif len(match.groups()) == 2:  # "ottobre 2025"
+                
+                elif format_type == 'textual_month_year':
+                    # "ottobre 2025"
                     day = 1
                     month = month_map[match.group(1).lower()]
                     year = int(match.group(2))
+                
+                elif format_type == 'numeric_dmy':
+                    # ✅ NEW: "04/10/2025" (DD/MM/YYYY format - European)
+                    day = int(match.group(1))
+                    month = int(match.group(2))
+                    year = int(match.group(3))
+                
                 else:
                     continue
                 
-                # 🔧 FIX: Validate date before creating datetime
+                # ✅ FIXED: Validate date before creating datetime
+                # This prevents invalid dates like 31 February
                 try:
                     date = datetime(year, month, day, tzinfo=ITALIAN_TZ)
                 except ValueError as e:
-                    logger.debug(f"Invalid date skipped: {year}-{month}-{day} - {e}")
+                    logger.debug(f"Invalid date skipped: {day}/{month}/{year} - {e}")
                     continue
                 
                 # Extract surrounding context (50 chars before and after)
@@ -373,16 +393,25 @@ def extract_dates_from_knowledge_base(kb_text: str) -> List[Tuple[datetime, str]
                 date_key = date.date()
                 if date_key not in dates_dict:
                     dates_dict[date_key] = (date, context)
+                    logger.debug(f"Date extracted: {date.strftime('%d/%m/%Y')} ({format_type})")
                     
             except KeyError as e:
-                logger.debug(f"Could not parse month from match: {match.group(0)} - {e}")
+                logger.debug(f"Could not parse month: {e}")
+                continue
+            except ValueError as e:
+                logger.debug(f"Invalid date values: {e}")
                 continue
             except Exception as e:
                 logger.warning(f"⚠️  Unexpected error parsing date: {match.group(0)} - {e}")
                 continue
     
     # Return as sorted list
-    return sorted(dates_dict.values(), key=lambda x: x[0])
+    sorted_dates = sorted(dates_dict.values(), key=lambda x: x[0])
+    
+    if sorted_dates:
+        logger.info(f"   Extracted {len(sorted_dates)} unique dates from KB")
+    
+    return sorted_dates
 
 
 # ============================================================================
@@ -670,20 +699,38 @@ if __name__ == "__main__":
     print("=" * 80)
     
     test_dates = [
-        datetime(2025, 6, 25),   # Before summer
-        datetime(2025, 6, 30),   # In summer (Monday after June 26 is June 30)
-        datetime(2025, 7, 15),   # Mid-summer
-        datetime(2025, 8, 15),   # August
-        datetime(2025, 8, 31),   # Last day of August
-        datetime(2025, 9, 1),    # Monday after Aug 31
-        datetime(2025, 9, 2),    # After summer
-        datetime(2025, 10, 15),  # Autumn
+        datetime(2025, 6, 25),
+        datetime(2025, 6, 30),
+        datetime(2025, 7, 15),
+        datetime(2025, 8, 15),
+        datetime(2025, 8, 31),
+        datetime(2025, 9, 1),
+        datetime(2025, 9, 2),
+        datetime(2025, 10, 15),
     ]
     
     for date in test_dates:
         season = get_current_season(date)
         day_name = date.strftime('%A')
         print(f"{date.strftime('%Y-%m-%d')} ({day_name}): {season}")
+    
+    print("\n" + "=" * 80)
+    print("TESTING DATE EXTRACTION WITH MULTIPLE FORMATS")
+    print("=" * 80)
+    
+    test_kb = """
+    Il corso inizierà il 4 ottobre 2025.
+    La festa si terrà il 15/11/2025.
+    Gli incontri sono: 10-12-2025, 20-12-2025.
+    L'evento di gennaio 2026 sarà speciale.
+    Appuntamento per il 5.1.2026.
+    """
+    
+    dates = extract_dates_from_knowledge_base(test_kb)
+    
+    print(f"\nFound {len(dates)} dates:")
+    for date, context in dates:
+        print(f"  - {date.strftime('%d/%m/%Y')}: {context[:50]}...")
     
     print("\n" + "=" * 80)
     print("TESTING TIMEZONE")
