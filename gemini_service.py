@@ -1,7 +1,7 @@
 """
 Gemini API service module for AI responses
-Handles generating responses and conversation management
-🔧 OPTIMIZED v3.0: Integrated PromptEngine v3.0 for 60% token reduction
+Handles generating responses and summarizing conversations
+🔧 FIXED: Better retry logic, improved timeout handling, validation
 """
 
 import requests
@@ -13,8 +13,9 @@ from utils import get_current_season, get_special_day_greeting
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
-from prompt_engine import PromptEngineV3, PromptContext  # ← v3.0
+from prompt_engine import PromptEngine, PromptContext  # ← NUOVO
 from territory_validator import TerritoryValidator
+
 
 logger = logging.getLogger(__name__)
 
@@ -74,13 +75,11 @@ class GeminiService:
     """
     Service for Gemini AI API interactions
 
-    🔧 v3.0 IMPROVEMENTS:
-    - Integrated PromptEngine v3.0 (adaptive prompts)
-    - Removed expensive summarization
+    🔧 IMPROVEMENTS:
     - Better retry logic with exponential backoff
     - Improved timeout handling
     - Response validation
-    - Cost monitoring
+    - Better error messages
     """
 
     def __init__(self):
@@ -98,12 +97,10 @@ class GeminiService:
         if len(self.api_key) < 20:
             logger.warning("⚠️  GEMINI_API_KEY seems too short, please verify")
 
-        # Initialize PromptEngine v3.0
-        self.prompt_engine = PromptEngineV3()
-        logger.info("✓ Using PromptEngine v3.0 (Optimized & Adaptive)")
-        
-        # Initialize TerritoryValidator
+        # Initialize PromptEngine
+        self.prompt_engine = PromptEngine()  # ← NUOVO
         self.territory_validator = TerritoryValidator()
+
 
         logger.info(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
 
@@ -255,14 +252,8 @@ class GeminiService:
         category: Optional[str] = None
     ) -> Optional[str]:
         """
-        Generate AI response for an email with optimized prompts
-        
-        v3.0 Changes:
-        - Uses PromptEngine v3.0 for adaptive prompt generation
-        - 60% smaller prompts for follow-ups
-        - No more expensive summarization
-        - Better cost efficiency
-        
+        Generate AI response for an email with retry logic
+
         Args:
             email_content: Content of the email
             email_subject: Subject of the email
@@ -305,6 +296,22 @@ class GeminiService:
         salutation, closing = self._get_adaptive_greeting(now, sender_name, detected_language)
         current_season = get_current_season(now)
 
+        # Build context
+        context = PromptContext(
+            email_content=email_content,
+            email_subject=email_subject,
+            sender_name=sender_name,
+            sender_email=sender_email,
+            knowledge_base=knowledge_base,
+            conversation_history=conversation_history,
+            category=category,
+            detected_language=detected_language,
+            current_season=current_season,
+            now=now,
+            salutation=salutation,
+            closing=closing
+        )
+
         # ═══════════════════════════════════════════════════════════════
         # VERIFICA AUTOMATICA TERRITORIO PARROCCHIALE
         # ═══════════════════════════════════════════════════════════════
@@ -335,31 +342,26 @@ usa SOLO il risultato di questa verifica automatica.
 """
             knowledge_base = territory_context + knowledge_base
             logger.debug(f"   📋 Territory context added to prompt ({len(territory_context)} chars)")
+        # ═══════════════════════════════════════════════════════════════
 
-        # ═══════════════════════════════════════════════════════════════
-        # v3.0: OPTIMIZED PROMPT GENERATION WITH ADAPTIVE ENGINE
-        # ═══════════════════════════════════════════════════════════════
-        
+
+
+
+        # Generate optimized prompt usando parametri individuali
         prompt = self.prompt_engine.build_prompt(
-            email_content=email_content,
-            email_subject=email_subject,
-            knowledge_base=knowledge_base,
-            sender_name=sender_name,
-            sender_email=sender_email,
-            conversation_history=conversation_history,
-            category=category,
-            detected_language=detected_language,
-            current_season=current_season,
-            now=now,
-            salutation=salutation,
-            closing=closing
-        )
-
-        # Log prompt size for monitoring
-        tokens_estimate = self.prompt_engine.estimate_tokens(prompt)
-        logger.info(f"🤖 Calling Gemini API")
-        logger.info(f"   Prompt: {len(prompt)} chars (~{tokens_estimate} tokens)")
-        logger.debug(f"   Email: {sender_email}")
+        email_content=email_content,
+        email_subject=email_subject,
+        knowledge_base=knowledge_base,
+        sender_name=sender_name,
+        sender_email=sender_email,
+        conversation_history=conversation_history,
+        category=category,
+        detected_language=detected_language,
+        current_season=current_season,
+        now=now,
+        salutation=salutation,
+        closing=closing
+    )
 
         # Validate prompt size
         if len(prompt) > 100000:
@@ -367,6 +369,9 @@ usa SOLO il risultato di questa verifica automatica.
 
         # Call Gemini API with timeout
         try:
+            logger.info(f"🤖 Calling Gemini API for: {sender_email}")
+            logger.debug(f"   Prompt size: {len(prompt)} chars")
+
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
@@ -401,16 +406,7 @@ usa SOLO il risultato di questa verifica automatica.
                     logger.error(f"❌ Gemini returned empty response")
                     return None
 
-                # Log response size and cost estimate
-                output_tokens = len(generated_text) // 4
-                input_cost = tokens_estimate * 0.000000075  # $0.075 per 1M tokens
-                output_cost = output_tokens * 0.00000030    # $0.30 per 1M tokens
-                total_cost = input_cost + output_cost
-
-                logger.info(f"✓ Gemini response generated")
-                logger.info(f"   Output: {len(generated_text)} chars (~{output_tokens} tokens)")
-                logger.info(f"   💰 Est. cost: ${total_cost:.6f} (in: ${input_cost:.6f}, out: ${output_cost:.6f})")
-
+                logger.info(f"✓ Gemini response generated ({len(generated_text)} chars)")
                 return generated_text
             else:
                 logger.error(f"❌ Gemini API error: {response.status_code}")
@@ -423,6 +419,322 @@ usa SOLO il risultato di questa verifica automatica.
         except Exception as e:
             logger.error(f"❌ Error calling Gemini API: {e}")
             raise
+
+    @retry_on_failure(max_retries=2, delay=1, backoff_factor=2)
+    def summarize_conversation(self, conversation_history: str) -> str:
+        """
+        Summarize a long conversation history with retry logic
+
+        Args:
+            conversation_history: Full conversation history
+
+        Returns:
+            Summarized conversation or original if short/error
+        """
+        # If history is short, no need to summarize
+        word_count = len(conversation_history.split())
+        if word_count < 60:
+            return conversation_history
+
+        prompt = f"""
+Sei un assistente di segreteria. Riassumi la seguente conversazione email
+in massimo 5 frasi, mantenendo SOLO:
+- richieste specifiche dell'utente
+- risposte già fornite dalla segreteria
+- eventuali follow-up importanti
+NON includere ringraziamenti, formule di cortesia, firme o dettagli irrilevanti.
+
+Conversazione:
+{conversation_history}
+"""
+
+        try:
+            logger.info(f"📝 Summarizing conversation ({word_count} words)...")
+
+            response = requests.post(
+                f"{self.base_url}?key={self.api_key}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0.1,
+                        "maxOutputTokens": 150
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=20  # 20 seconds timeout for summarization
+            )
+
+            if response.status_code == 200:
+                result = response.json()
+                if result.get("candidates") and result["candidates"][0].get("content"):
+                    summary = result["candidates"][0]["content"]["parts"][0]["text"].strip()
+
+                    # Validate summary
+                    if len(summary.split()) < 15 or "non ho abbastanza informazioni" in summary.lower():
+                        logger.warning("⚠️  Summary too short or vague, using full history")
+                        return conversation_history
+
+                    logger.info(f"✓ Conversation summarized ({len(summary.split())} words)")
+                    return summary
+
+        except requests.exceptions.Timeout:
+            logger.warning(f"⏱️  Summary timeout, using full history")
+            return conversation_history
+        except Exception as e:
+            logger.warning(f"⚠️  Error summarizing conversation: {e}, using full history")
+            return conversation_history
+
+        return conversation_history
+
+    def _build_prompt(
+        self,
+        email_content: str,
+        email_subject: str,
+        knowledge_base: str,
+        sender_name: str,
+        sender_email: str,
+        conversation_history: str,
+        category: Optional[str] = None
+    ) -> str:
+        """
+        Build the prompt for Gemini API
+
+        Returns:
+            Complete prompt string
+        """
+        # Use Italian timezone
+        now = datetime.now(ITALIAN_TZ)
+
+        # Detect language
+        detected_language = self._detect_email_language(email_content, email_subject)
+
+        # Get adaptive greeting and closing
+        salutation, closing_phrase = self._get_adaptive_greeting(now, sender_name, detected_language)
+
+        # Get current season
+        current_season = get_current_season(now)
+        seasonal_note = (
+            'IMPORTANTE: Siamo attualmente nel periodo ESTIVO. Utilizza SOLO gli orari estivi nelle risposte.'
+            if current_season == 'estivo'
+            else 'IMPORTANTE: Siamo attualmente nel periodo INVERNALE. Utilizza SOLO gli orari invernali nelle risposte.'
+        )
+
+        # Language instruction based on detected language
+        if detected_language == 'en':
+            language_instruction = (
+                "🚨 CRITICAL PRIORITY INSTRUCTION 🚨\n"
+                "This email is written in ENGLISH.\n"
+                "You MUST respond ENTIRELY and EXCLUSIVELY in English.\n"
+                "Do NOT use ANY Italian words or phrases.\n"
+                "Translate ALL parish information to English.\n"
+                "This rule has ABSOLUTE PRIORITY over all other instructions."
+            )
+        elif detected_language == 'es':
+            language_instruction = (
+                "🚨 INSTRUCCIÓN CRÍTICA DE MÁXIMA PRIORIDAD 🚨\n"
+                "Este correo está escrito en ESPAÑOL.\n"
+                "Debes responder COMPLETA y EXCLUSIVAMENTE en español.\n"
+                "NO uses NINGUNA palabra o frase en italiano.\n"
+                "Traduce TODA la información parroquial al español.\n"
+                "Esta regla tiene PRIORIDAD ABSOLUTA sobre todas las demás instrucciones."
+            )
+        else:
+            language_instruction = (
+                "Rispondi SEMPRE nella stessa lingua in cui è scritta l'email ricevuta. "
+                "Se l'email è in inglese, rispondi in inglese. "
+                "Se è in spagnolo, rispondi in spagnolo. "
+                "Non tradurre e non mischiare lingue."
+            )
+
+        # Build prompt parts
+        prompt_parts = [
+            "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.",
+            "Rispondi alle email in modo conciso, chiaro e solo con le informazioni esplicitamente richieste.",
+            "",
+            "="*60,
+            language_instruction,
+            "="*60,
+            "",
+            "**INFORMAZIONI DI RIFERIMENTO DELLA PARROCCHIA:**",
+            knowledge_base,
+            "",
+            "**GESTIONE ORARI STAGIONALI:**",
+            seasonal_note,
+            "Non mostrare mai contemporaneamente sia gli orari estivi che quelli invernali. Mostra SOLO quelli del periodo corrente.",
+            "",
+        ]
+
+        # Add category hint if available
+        if category:
+            category_hints = {
+                'appointment': "NOTA: Questa email riguarda la richiesta di un appuntamento. Fornisci informazioni su come fissare appuntamenti e gli orari disponibili.",
+                'information': "NOTA: Questa email richiede informazioni generali. Rispondi in modo chiaro e completo basandoti sulla knowledge base.",
+                'sacrament': "NOTA: Questa email riguarda i sacramenti. Fornisci informazioni dettagliate sui requisiti e le procedure.",
+                'collaboration': "NOTA: Questa email propone collaborazione o volontariato. Ringrazia e spiega come procedere.",
+                'complaint': "NOTA: Questa email potrebbe contenere un reclamo. Rispondi con empatia e professionalità."
+            }
+
+            if category in category_hints:
+                prompt_parts.extend([
+                    "**CATEGORIA EMAIL IDENTIFICATA:**",
+                    category_hints[category],
+                    ""
+                ])
+
+        # Add conversation history if present
+        if conversation_history:
+            prompt_parts.extend([
+                "**CRONOLOGIA DELLA CONVERSAZIONE (CONTESTO):**",
+                "Di seguito i messaggi precedenti. Analizzali per capire il contesto ed evitare di ripetere informazioni già date.",
+                '"""',
+                conversation_history,
+                '"""',
+                "",
+            ])
+
+        # Add current email
+        prompt_parts.extend([
+            "**ULTIMA EMAIL RICEVUTA (A CUI RISPONDERE):**",
+            f"Da: {sender_email} (Nome di fallback: {sender_name})",
+            f"Oggetto: {email_subject}",
+            f"🌍 LINGUA RILEVATA: {detected_language.upper()}",
+            "Contenuto:",
+            '"""',
+            email_content,
+            '"""',
+            "",
+"⚠️ **REGOLA CRITICA - NO_REPLY (LEGGI ATTENTAMENTE E APPLICA CON RIGORE):**",
+            "",
+            "Devi rispondere ESATTAMENTE e SOLAMENTE con la parola \"NO_REPLY\" (senza altro testo) se l'email ricade in UNA QUALSIASI di queste categorie:",
+            "",
+            "📧 CATEGORIE DA IGNORARE SEMPRE:",
+            "1. Newsletter, comunicazioni promozionali, pubblicità",
+            "2. Email automatiche da servizi online (Amazon, PayPal, eBay, Subito.it, tracking pacchi, etc.)",
+            "3. Notifiche di pagamento, bollette, ricevute, bonifici, fatture",
+            "4. Avvisi di spedizione o tracciamento",
+            "5. Avvisi di sicurezza o notifiche di accesso",
+            "6. Email di condoglianze o necrologi",
+            "7. Email con 'non rispondere a questo messaggio' o 'no-reply' nel testo",
+            "8. Email da indirizzi esplicitamente da ignorare (rasanfil@gmail.com, miqueldg63@gmail.com, rego.juan@gmail.com)",
+            "9. Comunicazioni politiche, elettorali o di partiti",
+            "10. Email con 'Unsubscribe', 'Cancella iscrizione', 'Gestisci iscrizione'",
+            "",
+            "🔄 FOLLOW-UP DI SOLO RINGRAZIAMENTO (NUOVA REGOLA - ATTENZIONE):",
+            "11. **SE E SOLO SE tutte queste condizioni sono vere contemporaneamente:**",
+            "    ✓ L'oggetto inizia con 'Re:' o 'R:' (è una RISPOSTA a conversazione esistente)",
+            "    ✓ Il contenuto contiene ESCLUSIVAMENTE:",
+            "      • Ringraziamenti ('grazie', 'grazie mille', 'vi ringrazio', 'ti ringrazio', etc.)",
+            "      • O conferme di ricezione ('ricevuto', 'ok ricevuto', 'tutto chiaro')",
+            "      • O conferme generiche ('perfetto', 'va bene', 'd'accordo', 'ok')",
+            "    ✓ NON contiene NESSUNA di queste cose:",
+            "      • Domande (anche implicite)",
+            "      • Nuove richieste",
+            "      • Nuove informazioni",
+            "      • Richieste di conferma",
+            "    → SOLO IN QUESTO CASO rispondi \"NO_REPLY\"",
+            "",
+            "✅ QUANDO INVECE RISPONDERE NORMALMENTE (NON \"NO_REPLY\"):",
+            "• Qualsiasi PRIMO messaggio (oggetto NON inizia con Re:), anche se contiene solo 'grazie'",
+            "• Follow-up (Re:) che contengono domande, anche se ringraziano prima",
+            "• Follow-up (Re:) con nuove richieste o informazioni",
+            "• Messaggi che richiedono conferma o azione",
+            "• Qualsiasi messaggio che non rientra esattamente nelle categorie sopra",
+            "",
+            "📚 ESEMPI PRATICI PER CHIARIRE:",
+            "",
+            "ESEMPIO A - Rispondi \"NO_REPLY\":",
+            "Oggetto: Re: Orari messa",
+            "Corpo: 'Grazie mille! Ricevuto tutto.'",
+            "→ È Re: + solo ringraziamento + no domande = NO_REPLY",
+            "",
+            "ESEMPIO B - Rispondi NORMALMENTE:",
+            "Oggetto: Re: Orari messa",
+            "Corpo: 'Grazie! Ma per domenica prossima gli orari sono gli stessi?'",
+            "→ È Re: MA contiene una domanda = RISPONDI",
+            "",
+            "ESEMPIO C - Rispondi NORMALMENTE:",
+            "Oggetto: Posso venire sabato?",
+            "Corpo: 'Vorrei sapere se posso partecipare sabato.'",
+            "→ NON è Re: (primo messaggio) = RISPONDI SEMPRE",
+            "",
+            "ESEMPIO D - Rispondi \"NO_REPLY\":",
+            "Oggetto: Re: Prenotazione confermata",
+            "Corpo: 'Perfetto, grazie! A sabato.'",
+            "→ È Re: + solo conferma/ringraziamento = NO_REPLY",
+            "",
+            "ESEMPIO E - Rispondi NORMALMENTE:",
+            "Oggetto: Re: Info catechismo",
+            "Corpo: 'Grazie per le info. Volevo anche sapere se serve portare qualcosa.'",
+            "→ È Re: MA contiene nuova richiesta = RISPONDI",
+            "",
+            "ESEMPIO F - Rispondi NORMALMENTE:",
+            "Oggetto: Grazie",
+            "Corpo: 'Grazie mille.'",
+            "→ NON è Re: (primo messaggio) = RISPONDI (anche se sembra strano)",
+            "",
+            "⚠️ IMPORTANTE: \"NO_REPLY\" significa che il sistema NON invierà ALCUNA risposta. Non devi scrivere un messaggio che dice \"questa email non richiede risposta\". Scrivi SOLO la parola \"NO_REPLY\" e basta.",
+            "",
+            "0. Se l'ultimo messaggio ricevuto contiene esclusivamente un ringraziamento o una conferma di ricezione, rispondi esattamente e solo con \"NO_REPLY\", indipendentemente dal contenuto della cronologia precedente.",
+            f"1. **Analisi dell'Interlocutore (COMPITO PRIORITARIO):** Leggi attentamente il contenuto e la firma. Cerca nomi, pronomi o altri indizi per identificare il mittente. Se non riesci a determinare il nome, usa una forma generica come \"Gentile utente,\".",
+            f"2. **Saluto Iniziale (IMPORTANTE):** Inizia la tua risposta esattamente con \"{salutation}\". Non aggiungere altro prima di questo saluto.",
+            "3. **Corpo della Risposta:** Rispondi alla richiesta in modo chiaro e completo, basandoti esclusivamente sulle \"INFORMAZIONI DI RIFERIMENTO\" fornite.",
+            "",
+            "⚠️ **REGOLA CRITICA - SOLO INFORMAZIONI VERIFICATE:**",
+            "• Usa ESCLUSIVAMENTE le informazioni presenti nelle \"INFORMAZIONI DI RIFERIMENTO\"",
+            "• NON inventare",
+            "",
+            "3-bis. **Email contenenti proposte pastorali, culturali, musicali o richieste insolite:**",
+            "   1. Ringrazia il mittente per l'iniziativa",
+            "   2. Mostra apprezzamento per elementi specifici della proposta",
+            "   3. Conferma che la proposta sarà esaminata a breve",
+            "   4. Comunica che verrà fornita una risposta in tempi rapidi",
+            "",
+            "4. **Gestione Informazioni Mancanti:** Se non hai le informazioni per rispondere, indicalo gentilmente e spiega che la segreteria prenderà in carico la richiesta.",
+            "4-bis. **Richiesta di fissare date:** Rispondere che la segreteria esaminerà se è possibile accontentare la richiesta e farà sapere al più presto.",
+            "5. **Gestione Follow-up:** Se l'oggetto inizia con \"Re:\" o \"R:\", significa che è un'email di follow-up. Sii più diretto e conciso.",
+            f"5-bis. **Orari Stagionali:** Quando fornisci orari di apertura, mostra SOLO gli orari del periodo corrente ({current_season}). Non elencare mai entrambi i set di orari.",
+            "6. **FILTRO INTELLIGENTE (NON RISPONDERE):** Se l'email rientra in una delle categorie da ignorare, rispondi solo con \"NO_REPLY\".",
+            "",
+            "6-bis. **Cresima adulti / Cresima ragazzi:**",
+            "- Se la richiesta è scritta da un genitore per il proprio figlio, rispondi con le informazioni relative alla Cresima ragazzi.",
+            "- Se la richiesta è scritta da un adulto per sé stesso, rispondi con le informazioni relative alla Cresima adulti.",
+            "",
+            "6-ter. **Informazioni sul ruolo di padrino/madrina:**",
+            "- Se e solo se l'interlocutore dice che intende fare da padrino o madrina, integra le seguenti indicazioni:",
+            '"Chi si avvicina alla Cresima con l\'intento di diventare padrino o madrina tenga presente i criteri da rispettare per essere idonei: aver compiuto 16 anni, non vivere in convivenza né essersi sposati solo civilmente, non aver procurato divorzio o essersi risposati civilmente, non essere genitore del cresimando, impegnarsi a condurre vita cristiana conforme alla fede."',
+            "- se l'interlocutore non allude alla possibilità di fare da padrino o madrina, non menzionare questi criteri.",
+            "",
+            "7. Se una persona scrive dicendo che vorrebbe partecipare a una catechesi ma che impegni di lavoro o familiari non glielo consentono, rispondere dicendo che è possibile seguire programmi per venire incontro alle sue esigenze.",
+            "8. **Risposte strettamente pertinenti:** Limita la risposta a ciò che è stato espressamente chiesto.",
+            "8-bis. **Filtro temporale:** Se la domanda specifica un periodo temporale, limita la risposta SOLO a quel periodo.",
+            "",
+            f"9. **Chiusura:** Termina la risposta con \"{closing_phrase}\".",
+            "",
+            "**INTEGRAZIONI IMPORTANTI (VINCOLANTI):**",
+            f"- **Lingua della risposta (PRIORITÀ ASSOLUTA):** Rispondi INTERAMENTE in {detected_language.upper()}. NON mescolare lingue.",
+            "- **FILTRO TEMPORALE ASSOLUTO:** Quando una domanda contiene \"a [mese]\" o \"nel [periodo]\", rispondi SOLO con informazioni di quel specifico periodo.",
+            "- **Distinzione certificato idoneità vs criteri Cresima:** se l'email parla di certificato/attestato di idoneità per fare da padrino/madrina, non elencare i criteri di idoneità della Cresima.",
+            "- **Uso delle Informazioni Specifiche (CRUCIALE):** Quando la base di conoscenza fornisce un dettaglio specifico, DEVI USARE QUELLO.",
+            f"- **Orari stagionali (CRUCIALE):** Quando menzioni orari di apertura, usa ESCLUSIVAMENTE quelli del periodo corrente ({current_season}).",
+            f"- **Formato della risposta:** inizia esattamente con \"{salutation}\".",
+            "  Corpo essenziale.",
+            "  Chiudi esattamente con:",
+            f"  \"{closing_phrase}\"",
+            "  Segreteria Parrocchia Sant'Eugenio",
+            "",
+            f"- **Lingua della risposta (VINCOLANTE):** usa la lingua {detected_language.upper()}.",
+            "CONTROLLO FINALE (obbligatorio):",
+            f"Dopo aver scritto la risposta, rileggila con attenzione e verifica che sia interamente in {detected_language.upper()}.",
+            "Riconosci con chiarezza ciò che l'interlocutore ha già fatto o comunicato, anche implicitamente.",
+            "Non ripetere istruzioni o informazioni che lui stesso dichiara di aver già eseguito o compreso.",
+            "Evita spiegazioni o suggerimenti che non aggiungono nulla di nuovo, né migliorano la chiarezza o la cortesia.",
+            "Se il messaggio del mittente contiene un'azione già compiuta (es. «ho allegato il modulo»), non dire cosa dovrebbe fare, ma conferma con gratitudine e indica con semplicità il passo successivo, se esiste.",
+            "Infine, rileggi l'intera risposta come se fossi tu a riceverla: deve suonare naturale, pertinente e rispettosa del tempo dell'altro.",
+            "",
+            "Adesso, genera la risposta completa utilizzando tutte le informazioni disponibili:"
+        ])
+
+        return '\n'.join(prompt_parts)
 
     def _extract_main_reply(self, content: str) -> str:
         """Extract main reply content without quoted text"""
@@ -476,6 +788,9 @@ usa SOLO il risultato di questa verifica automatica.
         
         return False
 
+    
+
+
     # ========================================================================
     # HEALTH CHECK AND DIAGNOSTICS
     # ========================================================================
@@ -527,13 +842,3 @@ usa SOLO il risultato di questa verifica automatica.
         results['is_healthy'] = results['connection_ok'] and results['can_generate']
 
         return results
-    
-    def get_stats(self) -> Dict:
-        """Get service statistics"""
-        return {
-            'model': config.MODEL_NAME,
-            'temperature': config.TEMPERATURE,
-            'max_output_tokens': config.MAX_OUTPUT_TOKENS,
-            'prompt_engine_version': '3.0',
-            'prompt_engine_stats': self.prompt_engine.get_stats()
-        }

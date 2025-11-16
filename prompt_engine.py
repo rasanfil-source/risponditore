@@ -1,14 +1,12 @@
+# prompt_engine.py
+
 """
-Prompt Engine v3.1 - Optimized & Adaptive with Natural Tone
-Major improvements over v3.0:
-- Stronger institutional voice enforcement
-- Better natural tone examples
-- Reduced bureaucratic language
-- Enhanced clarity and conciseness
+Modular prompt engineering system
+Template-based prompts with dynamic composition
 """
 
 import logging
-from typing import Optional
+from typing import Dict, Optional
 from datetime import datetime
 from dataclasses import dataclass
 
@@ -32,25 +30,238 @@ class PromptContext:
     closing: str
 
 
-class PromptEngineV3:
-    """
-    Adaptive prompt engine that adjusts verbosity and instructions
-    based on conversation stage
+class PromptTemplate:
+    """Base class for prompt templates"""
     
-    Key improvements v3.1:
-    - First message: Natural tone, institutional voice (~3500 chars)
-    - Follow-up: Minimal context (~1500 chars, -60% tokens)
-    - Strong emphasis on plural institutional voice
-    - Examples of good vs bad responses
-    - Checklist before generation
+    def render(self, context: PromptContext) -> str:
+        raise NotImplementedError
+
+
+class SystemRoleTemplate(PromptTemplate):
+    """System role definition"""
+    
+    def render(self, context: PromptContext) -> str:
+        return "Sei la segreteria della Parrocchia di Sant'Eugenio a Roma. Rispondi in modo conciso e chiaro."
+
+
+class LanguageInstructionTemplate(PromptTemplate):
+    """Language-specific instructions"""
+    
+    INSTRUCTIONS = {
+        'it': "Rispondi in italiano, la lingua dell'email ricevuta.",
+        'en': (
+            "🚨 CRITICAL: This email is in ENGLISH. "
+            "Respond ENTIRELY in English. NO Italian words."
+        ),
+        'es': (
+            "🚨 CRÍTICO: Este correo está en ESPAÑOL. "
+            "Responde COMPLETAMENTE en español. SIN palabras italianas."
+        )
+    }
+    
+    def render(self, context: PromptContext) -> str:
+        return self.INSTRUCTIONS.get(context.detected_language, self.INSTRUCTIONS['it'])
+
+
+class KnowledgeBaseTemplate(PromptTemplate):
+    """Knowledge base section"""
+    
+    def render(self, context: PromptContext) -> str:
+        return f"""**INFORMAZIONI DI RIFERIMENTO:**
+{context.knowledge_base}
+
+**REGOLA FONDAMENTALE:** Usa SOLO informazioni presenti sopra. NON inventare."""
+
+
+class SeasonalContextTemplate(PromptTemplate):
+    """Seasonal hours management"""
+    
+    def render(self, context: PromptContext) -> str:
+        season_note = (
+            f"IMPORTANTE: Siamo nel periodo {context.current_season.upper()}. "
+            f"Usa SOLO gli orari {context.current_season}."
+        )
+        
+        return f"""**ORARI STAGIONALI:**
+{season_note}
+Non mostrare mai entrambi i set di orari."""
+
+
+class CategoryHintTemplate(PromptTemplate):
+    """Category-specific hints"""
+    
+    HINTS = {
+        'appointment': "📌 Email su APPUNTAMENTO: fornisci info su come fissare appuntamenti.",
+        'information': "📌 Richiesta INFORMAZIONI: rispondi basandoti sulla knowledge base.",
+        'sacrament': "📌 Email su SACRAMENTI: fornisci info dettagliate su requisiti e procedure.",
+        'collaboration': "📌 Proposta COLLABORAZIONE: ringrazia e spiega come procedere.",
+        'complaint': "📌 Possibile RECLAMO: rispondi con empatia e professionalità."
+    }
+    
+    def render(self, context: PromptContext) -> str:
+        if not context.category or context.category not in self.HINTS:
+            return ""
+        
+        return f"**CATEGORIA IDENTIFICATA:**\n{self.HINTS[context.category]}\n"
+
+
+class ConversationHistoryTemplate(PromptTemplate):
+    """Conversation history context"""
+    
+    def render(self, context: PromptContext) -> str:
+        if not context.conversation_history:
+            return ""
+        
+        return f"""**CRONOLOGIA CONVERSAZIONE:**
+Messaggi precedenti per contesto. Non ripetere info già fornite.
+\"\"\"
+{context.conversation_history}
+\"\"\""""
+
+
+class EmailContentTemplate(PromptTemplate):
+    """Current email to respond to"""
+    
+    def render(self, context: PromptContext) -> str:
+        return f"""**EMAIL DA RISPONDERE:**
+Da: {context.sender_email} ({context.sender_name})
+Oggetto: {context.email_subject}
+Lingua: {context.detected_language.upper()}
+
+Contenuto:
+\"\"\"
+{context.email_content}
+\"\"\""""
+
+
+class NoReplyRulesTemplate(PromptTemplate):
+    """Condensed NO_REPLY rules"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """**QUANDO NON RISPONDERE (scrivi solo "NO_REPLY"):**
+
+1. Newsletter, pubblicità, email automatiche (Amazon, PayPal, tracking)
+2. Bollette, fatture, ricevute, notifiche bancarie
+3. Condoglianze, necrologi
+4. Email con "no-reply" o "non rispondere"
+5. Comunicazioni politiche, "Unsubscribe"
+
+6. **Follow-up di SOLO ringraziamento** (tutte queste condizioni):
+   ✓ Oggetto inizia con "Re:" (è una risposta)
+   ✓ Contiene SOLO: ringraziamenti, conferme ("ricevuto", "ok", "perfetto")
+   ✓ NON contiene: domande, nuove richieste, richieste di conferma
+   
+   Esempi NO_REPLY:
+   • Re: Orari → "Grazie mille! Ricevuto."
+   • Re: Info → "Perfetto, grazie!"
+   
+   Esempi RISPONDI:
+   • Re: Orari → "Grazie! Ma domenica gli orari cambiano?"
+   • Primo messaggio → "Grazie" (NON è Re:, quindi rispondi)
+
+⚠️ "NO_REPLY" significa che NON invierò risposta. Scrivi SOLO "NO_REPLY", nient'altro."""
+
+
+class ResponseGuidelinesTemplate(PromptTemplate):
+    """Core response guidelines (condensed)"""
+    
+    def render(self, context: PromptContext) -> str:
+        return f"""**LINEE GUIDA RISPOSTA:**
+
+1. **Identificazione mittente:** Cerca il nome nella firma/contenuto. Se assente: forma generica.
+
+2. **Formato risposta:**
+   {context.salutation}
+   [Corpo conciso e pertinente]
+   {context.closing}
+   Segreteria Parrocchia Sant'Eugenio
+
+3. **Contenuto:**
+   • Rispondi SOLO a ciò che è chiesto
+   • Usa SOLO info dalla knowledge base
+   • Se info mancano: indica che la segreteria si farà sentire
+   • Follow-up (Re:): sii più diretto e conciso
+
+4. **Proposte insolite:** Ringrazia, apprezza, conferma esame e risposta rapida
+
+5. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
+
+6. **Lingua:** Rispondi in {context.detected_language.upper()}, la lingua dell'email
+
+7. **Controllo finale:** Rileggi. Deve essere naturale, pertinente, rispettoso."""
+
+
+class SpecialCasesTemplate(PromptTemplate):
+    """Special cases handling"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """**CASI SPECIALI:**
+
+• **Cresima:** Se genitore per figlio → info Cresima ragazzi. Se adulto per sé → info Cresima adulti.
+• **Padrino/Madrina:** Se l'interlocutore vuole fare da padrino/madrina, includi criteri idoneità.
+• **Certificato idoneità:** NON confondere con criteri Cresima. Sono due cose diverse.
+• **Impegni lavorativi:** Se impossibilitato a partecipare → offri programmi flessibili.
+• **Filtro temporale:** "a giugno" → rispondi SOLO con info di giugno."""
+
+# ═══════════════════════════════════════════════════════════════
+# 🆕 NUOVO TEMPLATE: VERIFICA TERRITORIO
+# ═══════════════════════════════════════════════════════════════
+class TerritoryVerificationTemplate(PromptTemplate):
+    """Territory verification rules and guidance"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """**VERIFICA TERRITORIO PARROCCHIALE - REGOLA SPECIALE:**
+
+🎯 PRIORITÀ ASSOLUTA: Se nella sezione "INFORMAZIONI DI RIFERIMENTO" trovi 
+il blocco "VERIFICA TERRITORIO AUTOMATICA", quello è il risultato di una 
+verifica programmatica precisa al 100%.
+
+✅ ISTRUZIONI:
+• Usa ESATTAMENTE le informazioni dalla verifica automatica
+• NON fare supposizioni o interpretazioni personali
+• NON basarti solo sulla knowledge base testuale generica
+• Se la verifica dice "RIENTRA" → l'indirizzo è nel territorio
+• Se la verifica dice "NON RIENTRA" → l'indirizzo NON è nel territorio
+
+❌ Se la verifica automatica NON è presente:
+• Significa che non è stato rilevato un indirizzo specifico nell'email
+• In questo caso usa le informazioni generali dalla knowledge base
+• Se chiede di un indirizzo specifico senza numero civico → chiedi il numero
+
+⚠️ La verifica automatica è SEMPRE corretta. Fidati di essa al 100%."""
+# ═══════════════════════════════════════════════════════════════
+
+
+class PromptEngine:
+    """
+    Modular prompt composition engine
+    
+    Benefits:
+    - ~40% token reduction through deduplication
+    - Easy A/B testing of specific sections
+    - Better maintainability
+    - Dynamic template selection
     """
     
     def __init__(self):
-        logger.info("🎨 Initializing PromptEngine v3.1 (Natural Tone)...")
-        logger.info("   ✓ Adaptive verbosity enabled")
-        logger.info("   ✓ Strong institutional voice enforcement")
-        logger.info("   ✓ Natural tone examples")
-        logger.info("   ✓ Token-efficient templates")
+        logger.info("🎨 Initializing PromptEngine...")
+        
+        # Template pipeline (order matters)
+        self.template_pipeline = [
+            SystemRoleTemplate(),
+            LanguageInstructionTemplate(),
+            KnowledgeBaseTemplate(),
+            TerritoryVerificationTemplate(),
+            SeasonalContextTemplate(),
+            CategoryHintTemplate(),
+            ConversationHistoryTemplate(),
+            EmailContentTemplate(),
+            NoReplyRulesTemplate(),
+            ResponseGuidelinesTemplate(),
+            SpecialCasesTemplate(),
+        ]
+        
+        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates")
     
     def build_prompt(
         self,
@@ -67,8 +278,12 @@ class PromptEngineV3:
         salutation: str,
         closing: str
     ) -> str:
-        """Build adaptive prompt based on conversation stage"""
+        """
+        Build optimized prompt from templates
         
+        Returns:
+            Complete prompt (~40% smaller than original)
+        """
         context = PromptContext(
             email_content=email_content,
             email_subject=email_subject,
@@ -84,342 +299,49 @@ class PromptEngineV3:
             closing=closing
         )
         
-        # Detect if this is a follow-up (Re: in subject or has conversation history)
-        is_followup = (
-            context.email_subject.lower().startswith(('re:', 'r:')) or
-            len(context.conversation_history.strip()) > 100
-        )
+        # Render all templates
+        sections = []
+        for template in self.template_pipeline:
+            try:
+                rendered = template.render(context)
+                if rendered:  # Skip empty sections
+                    sections.append(rendered)
+            except Exception as e:
+                logger.error(f"Error rendering {template.__class__.__name__}: {e}")
+                continue
         
-        if is_followup:
-            prompt = self._build_followup_prompt(context)
-            logger.debug(f"📐 Follow-up prompt: {len(prompt)} chars (~{len(prompt)//4} tokens)")
-        else:
-            prompt = self._build_first_contact_prompt(context)
-            logger.debug(f"📐 First contact prompt: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+        # Compose final prompt
+        prompt = "\n\n".join(sections)
+        prompt += "\n\n**Genera la risposta completa:**"
+        
+        logger.debug(f"📐 Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
         
         return prompt
     
-    # ========================================================================
-    # FIRST CONTACT PROMPT (Comprehensive but efficient) - v3.1
-    # ========================================================================
-    
-    def _build_first_contact_prompt(self, ctx: PromptContext) -> str:
-        """
-        First contact prompt - natural tone, institutional voice
-        Target: ~3500 chars with strong emphasis on plural voice
-        """
-        
-        lang_instruction = self._get_language_instruction(ctx.detected_language)
-        category_hint = self._get_category_hint(ctx.category) if ctx.category else ""
-        
-        return f"""Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.
-
-{lang_instruction}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📚 INFORMAZIONI PARROCCHIALI:
-{ctx.knowledge_base}
-
-⚠️ USA SOLO info qui sopra. NON inventare date, orari, costi, contatti.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📧 EMAIL DA RISPONDERE:
-Da: {ctx.sender_name} ({ctx.sender_email})
-Oggetto: {ctx.email_subject}
-Contenuto:
-{ctx.email_content}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-📝 COME SCRIVERE LA RISPOSTA:
-
-1. STRUTTURA:
-   • Saluto: "{ctx.salutation}"
-   • Contenuto: risposta diretta alle domande
-   • Chiusura: {ctx.closing} / Segreteria Parrocchia Sant'Eugenio
-
-2. 🎯 VOCE ISTITUZIONALE (PRIORITÀ ASSOLUTA):
-   
-   Sei UNA SEGRETERIA (plurale), NON una persona singola.
-   
-   ✅ SEMPRE PLURALE:
-   • "Le consigliamo" ← MAI "Le consiglio"
-   • "Possiamo aiutarla" ← MAI "Posso aiutarla"  
-   • "Siamo a disposizione" ← MAI "Sono a disposizione"
-   • "Abbiamo verificato" ← MAI "Ho verificato"
-   • "Le suggeriamo" ← MAI "Le suggerisco"
-   
-   ⚠️ AUTOCONTROLLO OBBLIGATORIO:
-   Prima di rispondere, rileggi OGNI frase e sostituisci OGNI singolare con plurale.
-   Questa è la regola PIÙ IMPORTANTE.
-
-3. 💬 TONO E STILE:
-   
-   ✅ FAI (tono naturale e fluido):
-   • Vai subito al punto: "La catechesi è iniziata il 19 ottobre."
-   • Frasi brevi: 1 concetto = 1 frase
-   • Paragrafi separati per argomenti diversi
-   • "Lei" formale ma cordiale
-   • 80-150 parole totali
-   
-   ❌ NON FARE (burocratico/verboso):
-   • Giri di parole: "in merito alla sua cortese richiesta..."
-   • Frasi lunghe con subordinate infinite
-   • Ripetere lo stesso concetto in modi diversi
-   • "Le confermiamo che..." quando basta dire direttamente l'info
-   • "È possibile procedere con..." quando basta "Può..."
-
-4. 📅 GESTIONE DATE:
-   Eventi passati rispetto a OGGI ({ctx.now.strftime("%d/%m/%Y")}): usa PASSATO
-   Eventi futuri: usa FUTURO
-   (Il contesto temporale completo è già nella knowledge base sopra)
-
-{category_hint}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ ESEMPI DI TONO CORRETTO (naturale, diretto, plurale):
-
-ESEMPIO 1 - Informazioni catechesi:
-"{ctx.salutation}
-La catechesi per ragazzi è iniziata il 19 ottobre. Può ancora iscrivere suo figlio.
-Il prossimo incontro è sabato 15/11 alle 15:30 nei locali dell'Icef.
-
-Per l'iscrizione servono documento d'identità e certificato di battesimo.
-Può passare in segreteria negli orari indicati sul nostro sito.
-
-Restiamo a disposizione per chiarimenti.
-{ctx.closing}
-Segreteria Parrocchia Sant'Eugenio"
-
-ESEMPIO 2 - Richiesta informazioni messa:
-"{ctx.salutation}
-Le messe feriali sono alle 7:25, 13:15 e 19:00.
-La domenica alle 9:30, 11:00, 12:15, 17:30 e 19:00.
-
-{ctx.closing}
-Segreteria Parrocchia Sant'Eugenio"
-
-ESEMPIO 3 - Appuntamento:
-"{ctx.salutation}
-Può venire in segreteria martedì o giovedì dalle 16:00 alle 18:00,
-senza appuntamento.
-
-Se preferisce un orario specifico, ci contatti telefonicamente.
-
-{ctx.closing}
-Segreteria Parrocchia Sant'Eugenio"
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-❌ ESEMPI DA EVITARE (troppo formali/verbosi):
-
-PESSIMO - Ridondante e burocratico:
-"Gentile Signora Laura, la ringraziamo per averci contattato e per l'interesse
-mostrato nei confronti delle attività della nostra parrocchia. In merito alla
-sua cortese richiesta di informazioni riguardanti il percorso di catechesi per
-ragazzi, le confermiamo che il suddetto percorso è iniziato in data 19 ottobre
-2025. Tuttavia le comunichiamo che è ancora possibile procedere con l'iscrizione.
-Il prossimo incontro è programmato per il giorno 15 novembre alle ore 15:30
-presso l'oratorio parrocchiale. Per ulteriori informazioni restiamo a sua
-completa disposizione."
-
-PESSIMO - Ripetitivo:
-"La catechesi inizia il 19 ottobre. L'inizio del percorso è fissato per il 19
-ottobre. Come già indicato, la data di inizio è il 19 ottobre alle ore 15:30.
-Gli incontri si terranno alle 15:30 come comunicato."
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🚨 CONTROLLO FINALE PRIMA DI RISPONDERE:
-
-1. ☑️ Hai usato SOLO forme plurali? (possiamo, siamo, consigliamo)
-2. ☑️ Frasi brevi e dirette? (max 2 righe per frase)
-3. ☑️ Zero ripetizioni? (ogni info appare 1 sola volta)
-4. ☑️ 80-150 parole? (né troppo corto né prolisso)
-5. ☑️ Tono cordiale ma professionale? (Lei formale, ma naturale)
-
-Se una sola risposta è NO, riformula.
-
-Genera la risposta:"""
-    
-    # ========================================================================
-    # FOLLOW-UP PROMPT (Minimal & efficient) - v3.1
-    # ========================================================================
-    
-    def _build_followup_prompt(self, ctx: PromptContext) -> str:
-        """
-        Follow-up prompt - minimal context for efficiency
-        Target: ~1500 chars (was ~4000+ in v2.0)
-        Savings: -60% tokens
-        """
-        
-        recent_context = self._extract_recent_context(ctx.conversation_history)
-        
-        return f"""Parrocchia Sant'Eugenio - Follow-up
-
-LINGUA: {ctx.detected_language.upper()}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-🧵 CONVERSAZIONE PRECEDENTE:
-{recent_context}
-
-📧 NUOVO MESSAGGIO:
-{ctx.email_content}
-
-📚 KNOWLEDGE BASE (consulta solo se serve nuova info):
-{ctx.knowledge_base}
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✍️ RISPOSTA FOLLOW-UP:
-
-Saluto: "{ctx.salutation}"
-
-REGOLE:
-• Diretto e breve (40-80 parole)
-• NO ripetizioni di info già date
-• Voce PLURALE (possiamo, siamo, consigliamo)
-• Riferimenti concisi: "Come già indicato..."
-• Chiudi con: "Serve altro?" se appropriato
-
-Chiusura: {ctx.closing} / Segreteria Parrocchia Sant'Eugenio
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-✅ ESEMPIO CORRETTO:
-
-"{ctx.salutation}
-Come già indicato, l'incontro è sabato 15/11 alle 15:30 presso l'Auletta Rossa dell'Icef.
-Non serve conferma, ma è sempre gradita (può chiamare o scrivere).
-Possiamo fare qualcos'altro?
-{ctx.closing}
-Segreteria Parrocchia Sant'Eugenio"
-
-Genera risposta:"""
-    
-    # ========================================================================
-    # HELPER METHODS
-    # ========================================================================
-    
-    def _get_language_instruction(self, lang: str) -> str:
-        """Get language-specific instruction (compact)"""
-        instructions = {
-            'it': "Rispondi in italiano.",
-            'en': "🚨 CRITICAL: Respond ENTIRELY in English. NO Italian words.",
-            'es': "🚨 CRÍTICO: Responde COMPLETAMENTE en español. SIN palabras italianas."
-        }
-        return instructions.get(lang, instructions['it'])
-    
-    def _get_category_hint(self, category: str) -> str:
-        """Get category hint (compact)"""
-        hints = {
-            'appointment': "💡 Richiesta appuntamento: indica orari disponibili.",
-            'information': "💡 Richiesta info: rispondi basandoti su KB.",
-            'sacrament': "💡 Sacramenti: fornisci requisiti e procedure.",
-            'collaboration': "💡 Proposta collaborazione: ringrazia e indica come procedere.",
-        }
-        return hints.get(category, "")
-    
-    def _extract_recent_context(self, conversation_history: str) -> str:
-        """
-        Extract just the last 2 messages from conversation history
-        Keeps context compact (~300 chars instead of full history)
-        """
-        if not conversation_history or len(conversation_history) < 100:
-            return "Prima interazione"
-        
-        # Split by separator (assuming messages are separated by "---")
-        messages = conversation_history.split("---")
-        
-        # Take last 2 messages only
-        recent = messages[-2:] if len(messages) >= 2 else messages
-        recent_text = "---".join(recent).strip()
-        
-        # Truncate if still too long
-        if len(recent_text) > 800:
-            recent_text = recent_text[-800:] + "\n[... messaggi precedenti omessi ...]"
-        
-        return recent_text
-    
     def estimate_tokens(self, text: str) -> int:
-        """Rough token estimation"""
+        """Rough token estimation (1 token ≈ 4 characters)"""
         return len(text) // 4
     
-    def get_stats(self) -> dict:
-        """Get engine statistics"""
-        return {
-            'version': '3.1',
-            'mode': 'adaptive',
-            'optimization': 'enabled',
-            'natural_tone': True,
-            'institutional_voice': 'plural_enforced',
-            'avg_first_contact_tokens': 875,  # ~3500 chars
-            'avg_followup_tokens': 375,       # ~1500 chars
-            'savings_vs_v2': '60%'
+    def get_template_stats(self, context: PromptContext) -> Dict:
+        """Get statistics about template contributions"""
+        stats = {}
+        total_size = 0
+        
+        for template in self.template_pipeline:
+            try:
+                rendered = template.render(context)
+                size = len(rendered) if rendered else 0
+                stats[template.__class__.__name__] = {
+                    'size_chars': size,
+                    'size_tokens': self.estimate_tokens(rendered) if rendered else 0
+                }
+                total_size += size
+            except Exception:
+                stats[template.__class__.__name__] = {'size_chars': 0, 'size_tokens': 0}
+        
+        stats['total'] = {
+            'size_chars': total_size,
+            'size_tokens': self.estimate_tokens(str(total_size))
         }
-
-
-# ============================================================================
-# TESTING & COMPARISON
-# ============================================================================
-
-if __name__ == "__main__":
-    """Test the new engine"""
-    
-    print("=" * 80)
-    print("TESTING PROMPT ENGINE v3.1")
-    print("=" * 80)
-    
-    # Mock context
-    test_context = PromptContext(
-        email_content="Vorrei sapere quando inizia la catechesi per ragazzi.",
-        email_subject="Info catechesi",
-        sender_name="Marco Rossi",
-        sender_email="marco@example.com",
-        knowledge_base="Catechesi ragazzi: inizio 19 ottobre, ogni sabato 15:30-17:00.",
-        conversation_history="",
-        category="information",
-        detected_language="it",
-        current_season="invernale",
-        now=datetime(2025, 11, 6),
-        salutation="Buongiorno Marco,",
-        closing="Cordiali saluti,"
-    )
-    
-    engine = PromptEngineV3()
-    
-    # Test first contact
-    print("\n📧 FIRST CONTACT PROMPT")
-    print("-" * 80)
-    first_prompt = engine._build_first_contact_prompt(test_context)
-    print(f"Length: {len(first_prompt)} chars (~{engine.estimate_tokens(first_prompt)} tokens)")
-    print("\nPreview (first 500 chars):")
-    print(first_prompt[:500])
-    
-    # Test follow-up
-    print("\n\n📧 FOLLOW-UP PROMPT")
-    print("-" * 80)
-    test_context.conversation_history = "Utente: Quando inizia?\nSegreteria: È iniziata il 19 ottobre."
-    test_context.email_content = "E serve confermare per sabato prossimo?"
-    followup_prompt = engine._build_followup_prompt(test_context)
-    print(f"Length: {len(followup_prompt)} chars (~{engine.estimate_tokens(followup_prompt)} tokens)")
-    print("\nPreview (first 500 chars):")
-    print(followup_prompt[:500])
-    
-    print("\n\n📊 STATISTICS v3.1")
-    print("-" * 80)
-    stats = engine.get_stats()
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
-    
-    print("\n\n📊 COMPARISON vs v2.0")
-    print("-" * 80)
-    print(f"First contact: ~3500 chars (v3.1) vs ~8000 chars (v2.0) → -56% tokens")
-    print(f"Follow-up:     ~1500 chars (v3.1) vs ~4000 chars (v2.0) → -62% tokens")
-    print(f"Cost savings:  ~60% reduction in API costs")
-    print(f"New features:  Natural tone emphasis, institutional voice enforcement")
-    print("=" * 80)
+        
+        return stats

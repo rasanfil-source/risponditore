@@ -138,9 +138,7 @@ IGNORE_SENDERS = [
     'subito.it',
     'mailchimp.com',
     'mailup.com',
-    '@diocesidiroma.it',
     'unclickperlascuolaelosport.it',
-    'info@fabiomililli.it',
     'sendinblue.com',
     'miqueldg63@gmail.com',
     'rego.juan@gmail.com'
@@ -165,13 +163,6 @@ IGNORE_KEYWORDS = [
     'avviso di sicurezza',
     'necrologio',
     'non rispondere a questo messaggio'
-    'alla cortese attenzione',
-    'alla c.a.',
-    'c.a.',
-    'comunicazione interna',
-    'circolare interna',
-    'per il parroco',
-    'per don',
 ]
 
 # ============ Simple Acknowledgment Patterns ============

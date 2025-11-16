@@ -1,7 +1,6 @@
 """
 NLP Classification module for email filtering and categorization
 🔧 SIMPLIFIED: Minimal filtering, delegates complex decisions to Gemini
-✅ NEW: Internal communication filter (v1.1)
 """
 
 import re
@@ -12,17 +11,16 @@ class EmailClassifier:
     """
     Simplified email classifier - filters only obvious cases
     
-    🎯 PHILOSOPHY:
+    🎯 NEW PHILOSOPHY:
     - Filter ONLY ultra-simple acknowledgments (<=3 words)
     - Filter ONLY standalone greetings
-    - Filter ONLY internal communications (NEW v1.1)
     - EVERYTHING ELSE goes to Gemini for intelligent analysis
     - Zero false negatives: when in doubt, let Gemini decide
     """
 
     def __init__(self):
         """Initialize classifier with minimal patterns"""
-        print("🧠 Initializing EmailClassifier v1.1 (with Internal Comm Filter)...")
+        print("🧠 Initializing Simplified EmailClassifier...")
         
         # ULTRA-RESTRICTIVE: Only 3-word max acknowledgments
         self.ultra_simple_ack_patterns = [
@@ -38,32 +36,6 @@ class EmailClassifier:
             r'^(buongiorno|buonasera|salve|ciao)\.?\s*$',
             r'^cordiali\s+saluti\.?\s*$',
             r'^distinti\s+saluti\.?\s*$',
-        ]
-
-        # 🆕 NEW v1.1: Internal communication patterns
-        self.internal_communication_patterns = [
-            # Specific names (staff)
-            r'alla\s+(?:cortese\s+)?attenzione\s+(?:di\s+)?(?:don\s+)?giandomenic',
-            r'(?:alla\s+)?c\.?a\.?\s+(?:di\s+)?(?:don\s+)?giandomenic',
-            r'per\s+(?:don\s+)?giandomenic',
-            
-            # Generic staff patterns
-            r'alla\s+(?:cortese\s+)?attenzione\s+(?:di\s+)?(?:don|padre)',
-            r'(?:alla\s+)?c\.?a\.?\s+(?:di\s+)?(?:don|padre)',
-            r'per\s+(?:il\s+)?parroco(?:\s+[A-Z])?',
-            r'(?:per|a)\s+(?:don|padre)\s+[A-Z]',
-            
-            # Explicit internal communications
-            r'comunicazione\s+interna',
-            r'circolare\s+(?:interna|parrocchiale)',
-            r'memo\s+interno',
-            r'nota\s+(?:interna|riservata)',
-            
-            # Organizational internal patterns
-            r'riunione\s+(?:dello\s+)?staff',
-            r'consiglio\s+pastorale',
-            r'coordinamento\s+(?:catechisti|volontari)',
-            r'gruppo\s+(?:animatori|operatori)',
         ]
 
         # Categorie per hint a Gemini (opzionali)
@@ -98,23 +70,16 @@ class EmailClassifier:
             ]
         }
         
-        print(f"✓ Classifier initialized")
-        print(f"   Ultra-simple ACK patterns: {len(self.ultra_simple_ack_patterns)}")
-        print(f"   Greeting patterns: {len(self.greeting_only_patterns)}")
-        print(f"   🆕 Internal comm patterns: {len(self.internal_communication_patterns)}")
-        print(f"   Categories: {len(self.categories)}")
+        print(f"✓ Simplified Classifier initialized")
         print(f"   Philosophy: Filter only obvious cases, delegate rest to Gemini")
 
     def classify_email(self, subject: str, body: str, is_reply: bool = False) -> Dict:
         """
         Simplified classification: filter only ultra-obvious cases
         
-        🆕 v1.1: Added internal communication filtering as FIRST check
-        
-        🎯 APPROACH:
-        - FILTER 0: Internal communications (HIGHEST PRIORITY)
-        - FILTER 1: Ultra-simple acknowledgments (max 3 words)
-        - FILTER 2: Standalone greetings
+        🎯 NEW APPROACH:
+        - Check ONLY for 3-word-max acknowledgments
+        - Check ONLY for standalone greetings
         - Everything else → should_reply=True (let Gemini decide)
 
         Args:
@@ -127,18 +92,6 @@ class EmailClassifier:
         """
         
         print(f"   🔍 Classifying: '{subject[:50]}...'")
-
-        # ═══════════════════════════════════════════════════════════════
-        # 🆕 FILTER 0: Internal Communications (HIGHEST PRIORITY)
-        # ═══════════════════════════════════════════════════════════════
-        if self._is_internal_communication(subject, body):
-            print(f"      ✗ Internal communication detected")
-            return {
-                'should_reply': False,
-                'reason': 'internal_communication',
-                'category': None,
-                'confidence': 1.0
-            }
 
         # Extract main content (remove quotes/signatures)
         main_content = self._extract_main_content(body)
@@ -180,63 +133,7 @@ class EmailClassifier:
         }
 
     # ========================================================================
-    # 🆕 NEW v1.1: INTERNAL COMMUNICATION DETECTION
-    # ========================================================================
-
-    def _is_internal_communication(self, subject: str, body: str) -> bool:
-        """
-        🆕 NEW v1.1: Detect internal communications
-        
-        Checks for:
-        - Specific staff names (e.g., "C.A. Giandomenico")
-        - Generic staff addresses (e.g., "Per il parroco")
-        - Explicit internal keywords (e.g., "Comunicazione interna")
-        - Multiple internal indicators
-        
-        Args:
-            subject: Email subject
-            body: Email body
-            
-        Returns:
-            True if internal communication (should NOT reply automatically)
-        """
-        # Combine subject + beginning of body (first 1000 chars)
-        text = (subject + ' ' + body[:1000]).lower()
-        
-        # Normalize spaces
-        text = ' '.join(text.split())
-        
-        # Check all internal communication patterns
-        for pattern in self.internal_communication_patterns:
-            if re.search(pattern, text, re.IGNORECASE):
-                match = re.search(pattern, text, re.IGNORECASE)
-                matched_text = match.group() if match else pattern
-                print(f"         ✓ Matched internal pattern: '{matched_text}'")
-                return True
-        
-        # Additional check: Multiple internal indicators
-        # If 3+ indicators present, likely internal even without exact pattern match
-        internal_indicators = [
-            'staff' in text,
-            'coordinamento' in text,
-            'consiglio' in text,
-            'riunione' in text and ('team' in text or 'gruppo' in text),
-            'circolare' in text,
-            'memo' in text,
-            'riservat' in text,  # riservata/riservato
-            text.startswith(('c.a.', 'alla c.a.', 'alla cortese attenzione')),
-        ]
-        
-        indicator_count = sum(internal_indicators)
-        
-        if indicator_count >= 3:
-            print(f"         ✓ Multiple internal indicators detected: {indicator_count}/8")
-            return True
-        
-        return False
-
-    # ========================================================================
-    # EXISTING HELPER METHODS
+    # MINIMAL HELPER METHODS
     # ========================================================================
 
     def _extract_main_content(self, body: str) -> str:
@@ -255,24 +152,29 @@ class EmailClassifier:
         for line in lines:
             stripped = line.strip()
 
-            # Keep empty lines (help separate paragraphs)
+            # 🔹 Se la riga è vuota, la manteniamo (aiuta a separare paragrafi)
             if stripped == '':
                 clean_lines.append(line)
                 continue
 
-            # Skip greeting line (only if it's exactly a greeting on that line)
+            # 🔹 Salta il saluto iniziale (solo se è esattamente un saluto su quella riga)
             if re.match(r'^(salve|buongiorno|buonasera|ciao)[\s,!.]*$', stripped, re.IGNORECASE):
+                # Ignora questa riga ma NON interrompere la lettura del resto del messaggio
                 continue
 
-            # If line is a quote marker, stop reading
+            # 🔹 Se la riga è una citazione (marker), interrompi: il resto è storico
             if any(re.match(marker, stripped, re.IGNORECASE) for marker in markers):
                 break
 
             clean_lines.append(line)
 
+        # Assicuriamoci che clean_lines sia una lista
+        if not isinstance(clean_lines, list):
+            clean_lines = []
+
         content = '\n'.join(clean_lines).strip()
 
-        # Remove common signatures
+        # 🔹 Rimozione firme comuni
         signature_markers = [
             r'cordiali saluti', r'distinti saluti', r'in fede',
             r'best regards', r'sincerely', r'sent from my iphone', r'inviato da'
@@ -285,6 +187,8 @@ class EmailClassifier:
                 break
 
         return content
+
+
 
     def _is_ultra_simple_acknowledgment(self, text: str) -> bool:
         """
@@ -363,108 +267,8 @@ class EmailClassifier:
     def get_stats(self) -> Dict:
         """Get classifier statistics"""
         return {
-            'version': '1.1',
             'categories': len(self.categories),
             'ultra_simple_ack_patterns': len(self.ultra_simple_ack_patterns),
             'greeting_patterns': len(self.greeting_only_patterns),
-            'internal_comm_patterns': len(self.internal_communication_patterns),  # 🆕
-            'philosophy': 'minimal_filtering_gemini_decides',
-            'new_features': ['internal_communication_filter']  # 🆕
+            'philosophy': 'minimal_filtering_gemini_decides'
         }
-
-
-# ============================================================================
-# TESTING
-# ============================================================================
-
-if __name__ == "__main__":
-    """Test the classifier with internal communication detection"""
-    
-    print("=" * 80)
-    print("TESTING EMAIL CLASSIFIER v1.1 - Internal Communication Filter")
-    print("=" * 80)
-    
-    classifier = EmailClassifier()
-    
-    # Test cases
-    test_cases = [
-        {
-            'subject': 'Alla cortese attenzione di Don Giandomenico',
-            'body': 'Memo interno per il parroco riguardo la riunione di domani.',
-            'expected': {'should_reply': False, 'reason': 'internal_communication'}
-        },
-        {
-            'subject': 'C.A. Giandomenico',
-            'body': 'Riunione staff coordinamento catechisti venerdì prossimo.',
-            'expected': {'should_reply': False, 'reason': 'internal_communication'}
-        },
-        {
-            'subject': 'Per il parroco',
-            'body': 'Circolare interna: aggiornamento calendario liturgico.',
-            'expected': {'should_reply': False, 'reason': 'internal_communication'}
-        },
-        {
-            'subject': 'Info catechesi',
-            'body': 'Buongiorno, vorrei sapere quando inizia la catechesi per ragazzi.',
-            'expected': {'should_reply': True, 'reason': 'needs_ai_analysis'}
-        },
-        {
-            'subject': 'Re: Info orari',
-            'body': 'Grazie mille!',
-            'expected': {'should_reply': False, 'reason': 'ultra_simple_acknowledgment'}
-        },
-        {
-            'subject': 'Richiesta certificato',
-            'body': 'Salve, avrei bisogno del certificato di battesimo.',
-            'expected': {'should_reply': True, 'reason': 'needs_ai_analysis'}
-        },
-        {
-            'subject': 'Comunicazione interna',
-            'body': 'Nota per il consiglio pastorale.',
-            'expected': {'should_reply': False, 'reason': 'internal_communication'}
-        },
-    ]
-    
-    print("\n" + "─" * 80)
-    print("RUNNING TESTS")
-    print("─" * 80 + "\n")
-    
-    passed = 0
-    failed = 0
-    
-    for i, test in enumerate(test_cases, 1):
-        result = classifier.classify_email(test['subject'], test['body'])
-        
-        expected_reply = test['expected']['should_reply']
-        expected_reason = test['expected']['reason']
-        
-        got_reply = result['should_reply']
-        got_reason = result['reason']
-        
-        match = (got_reply == expected_reply and got_reason == expected_reason)
-        
-        status = "✅ PASS" if match else "❌ FAIL"
-        
-        print(f"\nTest {i}: {status}")
-        print(f"  Subject: {test['subject']}")
-        print(f"  Expected: should_reply={expected_reply}, reason={expected_reason}")
-        print(f"  Got:      should_reply={got_reply}, reason={got_reason}")
-        
-        if match:
-            passed += 1
-        else:
-            failed += 1
-            print(f"  ⚠️  MISMATCH!")
-    
-    print("\n" + "=" * 80)
-    print(f"RESULTS: {passed} passed, {failed} failed")
-    print("=" * 80 + "\n")
-    
-    # Print stats
-    stats = classifier.get_stats()
-    print("CLASSIFIER STATISTICS:")
-    for key, value in stats.items():
-        print(f"  {key}: {value}")
-    print()
-    
-    exit(0 if failed == 0 else 1)
