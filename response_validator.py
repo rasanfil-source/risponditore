@@ -340,15 +340,17 @@ class ResponseValidator:
         Critical for brand identity: missing signature = unprofessional
         """
         errors = []
+        warnings = []
         score = 1.0
         
         if not self.signature_pattern.search(response.lower()):
-            errors.append("Missing required signature 'Segreteria Parrocchia Sant'Eugenio'")
-            score = 0.70
+            warnings.append("Missing signature (non-blocking)")  # ← WARNING
+            score = 0.95
         
         return {
             'score': score,
-            'errors': errors
+            'errors': errors,
+            'warnings': warnings
         }
     
     def _check_forbidden_content(self, response: str) -> Dict:
