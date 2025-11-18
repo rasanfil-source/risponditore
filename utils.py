@@ -615,7 +615,247 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
             logger.info(f"Email ignored due to sender: '{sender}'")
             return True
     
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NUOVO: FILTRO 3 - INVITI ISTITUZIONALI E CONVEGNI
+    # ═══════════════════════════════════════════════════════════════
+    
+    institutional_invite_patterns = [
+        # Parole chiave inviti
+        r'invit(?:o|iamo|arvi)\s+(?:a|al|alla|per)',  # "invito a", "invitiamo alla"
+        r'convegno\s+',  # "convegno"
+        r'seminario\s+',  # "seminario"
+        r'conferenza\s+',  # "conferenza"
+        r'corso\s+di\s+formazione',  # "corso di formazione"
+        r'giornata\s+di\s+studio',  # "giornata di studio"
+        r'incontro\s+formativo',  # "incontro formativo"
+        
+        # Formule di cortesia istituzionali
+        r'abbiamo\s+il\s+piacere\s+di\s+invitarvi',
+        r'siamo\s+lieti\s+di\s+invitarvi',
+        r'vi\s+invitiamo\s+a\s+partecipare',
+        
+        # Link iscrizione/segnalazione
+        r'link\s+(?:dove|per)\s+(?:è\s+possibile\s+)?segnal(?:are|azione)',
+        r'clicca\s+(?:qui|sul\s+link)\s+per\s+iscri',
+        r'confermare\s+la\s+(?:tua|vostra)\s+presenza',
+        
+        # Documenti allegati (manifesti, locandine)
+        r'(?:alleghiamo|trovate\s+allegat[oa])\s+(?:la\s+)?(?:locandina|manifesto|programma)',
+        
+        # Programma evento
+        r'in\s+programma\s+(?:il|sabato|domenica|lunedì)',
+        r'ore\s+\d{1,2}[.:]\d{2}\s+(?:presso|al|alla)',
+    ]
+    
+    for pattern in institutional_invite_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            logger.info(f"✗ Ignored by institutional invite pattern: '{pattern[:30]}...'")
+            return True
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NUOVO: FILTRO 4 - CONTENUTI PROMOZIONALI/DONAZIONI
+    # ═══════════════════════════════════════════════════════════════
+    
+    promotional_patterns = [
+        r'vuoi\s+sostenere',  # "vuoi sostenere le nostre attività"
+        r'dona\s+ora',  # "dona ora"
+        r'sostieni\s+(?:le\s+nostre|la\s+nostra)',  # "sostieni le nostre attività"
+        r'contribuisci\s+con',  # "contribuisci con una donazione"
+        r'clicca\s+sull[\']immagine',  # "clicca sull'immagine"
+        r'5\s*x\s*1000',  # "5x1000"
+        r'sostegno\s+economico',  # "sostegno economico"
+    ]
+    
+    for pattern in promotional_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            logger.info(f"✗ Ignored by promotional pattern: '{pattern[:30]}...'")
+            return True
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NUOVO: FILTRO 5 - MITTENTI ISTITUZIONALI (NON PRIVATI)
+    # ═══════════════════════════════════════════════════════════════
+    
+    # Pattern per identificare mittenti istituzionali
+    institutional_sender_patterns = [
+        r'segreteria@',  # segreteria di altre organizzazioni
+        r'info@(?!(?:parrocchiasanteugenio|parrocchia\.it))',  # info@ ma non la nostra
+        r'comunicazione@',
+        r'ufficio(?:stampa|comunicazione)@',
+        r'newsletter@',
+        r'noreply@',
+        r'no-reply@',
+    ]
+    
+    # Eccezione: NON filtrare se è la nostra parrocchia
+    if 'parrocchiasanteugenio' not in sender_email.lower():
+        for pattern in institutional_sender_patterns:
+            if re.search(pattern, sender_email.lower()):
+                # DOPPIO CHECK: è davvero promozionale?
+                if any(keyword in text for keyword in ['invit', 'convegno', 'seminario', 'corso']):
+                    logger.info(f"✗ Ignored by institutional sender + promotional content")
+                    return True
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NUOVO: FILTRO 6 - FOOTER TIPICI DI NEWSLETTER
+    # ═══════════════════════════════════════════════════════════════
+    
+    newsletter_footer_patterns = [
+        r'vuoi\s+sostenere\s+le\s+nostre\s+attività',
+        r'privo\s+di\s+virus',  # "Privo di virus. www.avg.com"
+        r'scansionato\s+da\s+(?:gmail|avg|avast)',
+        r'immagine\s+rimossa\s+dal\s+mittente',
+        r'messaggio\s+troncato.*visualizza\s+intero\s+messaggio',
+    ]
+    
+    for pattern in newsletter_footer_patterns:
+        if re.search(pattern, text, re.IGNORECASE):
+            logger.info(f"✗ Ignored by newsletter footer pattern")
+            return True
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NUOVO: FILTRO 7 - COMBINAZIONI SOSPETTE
+    # ═══════════════════════════════════════════════════════════════
+    
+    # Se contiene INSIEME più elementi tipici di newsletter/eventi
+    suspicious_indicators = 0
+    
+    if re.search(r'(?:alleghiamo|trovate\s+allegat)', text, re.IGNORECASE):
+        suspicious_indicators += 1
+    if re.search(r'(?:link|url|https?://)', text, re.IGNORECASE):
+        suspicious_indicators += 1
+    if re.search(r'(?:locandina|manifesto|programma)', text, re.IGNORECASE):
+        suspicious_indicators += 1
+    if re.search(r'(?:presidente|segretari[ao]|assistente)', text, re.IGNORECASE):
+        suspicious_indicators += 1
+    if re.search(r'carissim[ie]|car[ie]\s+(?:amici|fratelli)', text, re.IGNORECASE):
+        suspicious_indicators += 1
+    
+    if suspicious_indicators >= 3:
+        logger.info(f"✗ Ignored by suspicious indicators count: {suspicious_indicators}/5")
+        return True
+    
+    # ═══════════════════════════════════════════════════════════════
+    
     return False
+
+
+# ═══════════════════════════════════════════════════════════════
+# ✅ HELPER: Detect se email è BROADCAST vs PERSONALE
+# ═══════════════════════════════════════════════════════════════
+
+def is_broadcast_email(content: str, sender_email: str) -> bool:
+    """
+    Detect if email is a broadcast/newsletter vs personal message
+    
+    Broadcast indicators:
+    - Generic greetings (Carissimi, Cari amici)
+    - Multiple recipients implied
+    - Footer with organization info
+    - Links to external registration
+    
+    Returns:
+        True if likely broadcast email
+    """
+    text = content.lower()
+    
+    # Saluti generici (non personali)
+    generic_greetings = [
+        r'carissim[ie]',
+        r'car[ie]\s+(?:amici|fratelli|sorelle)',
+        r'gentili\s+(?:signori|utenti)',
+        r'a\s+tutti',
+        r'alla\s+comunità',
+    ]
+    
+    has_generic_greeting = any(
+        re.search(pattern, text, re.IGNORECASE) 
+        for pattern in generic_greetings
+    )
+    
+    # Footer organizzativo
+    has_org_footer = bool(re.search(
+        r'(?:presidente|segretari[ao]|assistente)\s+(?:diocesan[oa]|ecclesiastic[oa])',
+        text,
+        re.IGNORECASE
+    ))
+    
+    # Link esterni
+    has_external_link = bool(re.search(r'https?://(?!parrocchiasanteugenio)', text))
+    
+    # Multiple indicators = broadcast
+    indicators = sum([has_generic_greeting, has_org_footer, has_external_link])
+    
+    return indicators >= 2
+
+
+# ═══════════════════════════════════════════════════════════════
+# TEST FUNCTION
+# ═══════════════════════════════════════════════════════════════
+
+def test_enhanced_filters():
+    """Test the enhanced filters with real examples"""
+    
+    # Test case: L'email del convegno AC Roma
+    test_email = """
+    Inoltriamo l'invito per la partecipazione al Convegno "L'apostolato dei laici 
+    a 60 anni da Apostolicam actuositatem" in programma sabato 22 novembre 2025.
+    
+    Carissimi, il 18 novembre 1965, i Padri conciliari consegnavano alla Chiesa...
+    
+    Vi alleghiamo la locandina e il link dove è possibile segnalare la presenza:
+    https://tinyurl.com/incontroapostolatodeilaici
+    
+    Marco Di Tommasi - Presidente diocesano
+    
+    Vuoi sostenere le nostre attività? clicca sull'immagine sottostante
+    """
+    
+    sender = "segreteria@acroma.it"
+    
+    result = should_ignore_email(
+        subject="Invito 22 novembre - Convegno",
+        content=test_email,
+        sender_email=sender,
+        ignore_keywords=[],
+        ignore_senders=[]
+    )
+    
+    print("="*70)
+    print("TEST: Email Convegno AC Roma")
+    print("="*70)
+    print(f"Sender: {sender}")
+    print(f"Should ignore: {result}")
+    print(f"Expected: True")
+    print(f"Result: {'✅ PASS' if result else '❌ FAIL'}")
+    print()
+    
+    # Test case: Email personale legittima
+    test_email_2 = """
+    Buongiorno,
+    vorrei avere informazioni sulla catechesi per mio figlio di 8 anni.
+    Quando iniziano gli incontri?
+    Grazie
+    """
+    
+    result_2 = should_ignore_email(
+        subject="Informazioni catechesi",
+        content=test_email_2,
+        sender_email="mario.rossi@gmail.com",
+        ignore_keywords=[],
+        ignore_senders=[]
+    )
+    
+    print("TEST: Email Personale Legittima")
+    print("="*70)
+    print(f"Should ignore: {result_2}")
+    print(f"Expected: False")
+    print(f"Result: {'✅ PASS' if not result_2 else '❌ FAIL'}")
+    print()
+
+
+if __name__ == "__main__":
+    test_enhanced_filters()
+
 
 
 def apply_replacements(text: str, replacements: Dict[str, str]) -> str:
