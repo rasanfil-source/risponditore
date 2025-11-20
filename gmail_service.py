@@ -1,7 +1,8 @@
 """
 Gmail service module for email operations
 Handles reading, sending, and labeling emails with improved HTML handling
-🔧 FIXED: Robust HTML parsing with multiple fallbacks, better error handling
+✅ FIXED: Reply-To header support for web forms
+✅ FIXED: Robust HTML parsing with multiple fallbacks, better error handling
 """
 
 import base64
@@ -118,7 +119,8 @@ class GmailManager:
     """
     Manager for Gmail API operations
     
-    🔧 IMPROVEMENTS:
+    ✅ IMPROVEMENTS:
+    - Reply-To header support for web forms
     - Race condition handling for label creation
     - Robust HTML parsing with fallbacks
     - Better error handling and logging
@@ -276,19 +278,22 @@ class GmailManager:
     
     def extract_message_details(self, message: Dict) -> Dict:
         """
-        Extract relevant details from a Gmail message
+        ✅ FIXED: Extract relevant details from a Gmail message with Reply-To support
+        
+        Now handles Reply-To header for web forms correctly
         
         Args:
             message: Gmail message object
             
         Returns:
-            Dictionary with extracted details
+            Dictionary with extracted details including Reply-To handling
         """
         headers = message['payload'].get('headers', [])
         
         # Extract header values
         subject = ''
         sender = ''
+        reply_to = ''  # ✅ NEW: Reply-To header
         date = ''
         message_id = ''
         
@@ -300,6 +305,8 @@ class GmailManager:
                 subject = value
             elif name == 'from':
                 sender = value
+            elif name == 'reply-to':  # ✅ NEW: Capture Reply-To
+                reply_to = value
             elif name == 'date':
                 date = value
             elif name == 'message-id':
@@ -308,19 +315,35 @@ class GmailManager:
         # Extract body
         body = self._extract_body(message['payload'])
         
-        # Extract sender name
-        sender_name = self._extract_sender_name(sender)
+        # ═══════════════════════════════════════════════════════════════
+        # ✅ NEW: Reply-To Logic - Use Reply-To if present and valid
+        # ═══════════════════════════════════════════════════════════════
+        
+        # Use Reply-To if present and valid (contains @)
+        if reply_to and '@' in reply_to:
+            effective_sender = reply_to
+            logger.info(f"   📧 Using Reply-To: {reply_to} (Original From: {sender})")
+        else:
+            effective_sender = sender
+            if reply_to:
+                logger.warning(f"   ⚠️  Invalid Reply-To ignored: {reply_to}")
+        
+        # Extract sender name and email from effective sender
+        sender_name = self._extract_sender_name(effective_sender)
+        sender_email = self._extract_email_address(effective_sender)
         
         return {
             'id': message['id'],
             'thread_id': message['threadId'],
             'subject': subject,
-            'sender': sender,
+            'sender': effective_sender,  # ✅ FIXED: This is now Reply-To when present
             'sender_name': sender_name,
-            'sender_email': self._extract_email_address(sender),
+            'sender_email': sender_email,
             'date': date,
             'body': body,
-            'message_id': message_id
+            'message_id': message_id,
+            'original_from': sender,  # ✅ NEW: Keep original From for reference
+            'has_reply_to': bool(reply_to)  # ✅ NEW: Flag to know if Reply-To was used
         }
     
     def _extract_body(self, payload: Dict, max_length: int = 50000) -> str:
@@ -459,6 +482,9 @@ class GmailManager:
         """
         Send a reply to a message
         
+        ✅ Already compatible with Reply-To:
+        Uses original_message['sender'] which now contains Reply-To when present
+        
         Args:
             original_message: Original message dictionary
             reply_text: Reply text content
@@ -468,7 +494,7 @@ class GmailManager:
             message = MIMEMultipart('alternative')
             
             # Set headers
-            message['To'] = original_message['sender']
+            message['To'] = original_message['sender']  # ✅ This now uses Reply-To when present!
             message['Subject'] = f"Re: {original_message['subject']}"
             message['In-Reply-To'] = original_message['message_id']
             message['References'] = original_message['message_id']
@@ -498,6 +524,11 @@ class GmailManager:
             ).execute()
             
             logger.info(f"✓ Reply sent successfully to {original_message['sender']}")
+            
+            # Log if Reply-To was used
+            if original_message.get('has_reply_to'):
+                logger.info(f"   📧 Reply sent to Reply-To address (not original From)")
+            
             return send_result
             
         except Exception as e:
