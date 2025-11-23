@@ -149,9 +149,15 @@ IGNORE_DOMAINS = IGNORE_SENDERS
 
 IGNORE_KEYWORDS = [
     'newsletter',
-    'unsubscribe', 
-    'cancella iscrizione',
+    'unsubscribe',
+    'disiscriviti',          # Italiano ← NUOVO
+    'disiscrizione',         # Italiano ← NUOVO
+    'annulla iscrizione',    # Italiano ← NUOVO
+    'annulla l\'iscrizione', # Italiano con apostrofo ← NUOVO
     'gestisci la tua iscrizione',
+    'gestisci le tue preferenze',  # ← NUOVO (vedi email Fabrick)
+    'aggiorna le tue preferenze',  
+    'cancella iscrizione',
     'mailing list',
     'inviato con mailup',
     'messaggio inviato con',
