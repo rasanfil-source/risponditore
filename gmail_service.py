@@ -3,6 +3,7 @@ Gmail service module for email operations
 Handles reading, sending, and labeling emails with improved HTML handling
 ✅ FIXED: Reply-To header support for web forms
 ✅ FIXED: Robust HTML parsing with multiple fallbacks, better error handling
+✅ NEW: Intelligent Markdown to HTML conversion for Gemini responses
 """
 
 import base64
@@ -13,6 +14,7 @@ from typing import List, Dict, Optional
 import re
 from auth import get_gmail_service
 from html2text import HTML2Text
+from markdown_formatter import MarkdownFormatter  # ✅ NUOVO
 import config
 
 logger = logging.getLogger(__name__)
@@ -124,6 +126,7 @@ class GmailManager:
     - Race condition handling for label creation
     - Robust HTML parsing with fallbacks
     - Better error handling and logging
+    - ✅ NEW: Intelligent Markdown to HTML conversion
     """
     
     def __init__(self, user_email: str = None):
@@ -133,7 +136,11 @@ class GmailManager:
         
         # Label cache to avoid repeated API calls
         self._label_cache: Dict[str, str] = {}
-        logger.info("✓ Gmail service initialized with label cache")
+        
+        # ✅ NUOVO: Initialize Markdown formatter
+        self.markdown_formatter = MarkdownFormatter()
+        
+        logger.info("✓ Gmail service initialized with label cache and Markdown formatter")
         
     def get_or_create_label(self, label_name: str) -> str:
         """
@@ -480,34 +487,67 @@ class GmailManager:
     
     def send_reply(self, original_message: Dict, reply_text: str):
         """
-        Send a reply to a message
+        Send a reply to a message with intelligent Markdown formatting
         
-        ✅ Already compatible with Reply-To:
-        Uses original_message['sender'] which now contains Reply-To when present
+        ✅ NEW: Automatically detects and converts Markdown to HTML
+        ✅ Compatible with Reply-To headers
         
         Args:
             original_message: Original message dictionary
-            reply_text: Reply text content
+            reply_text: Reply text content (may contain Markdown)
         """
         try:
-            # Create reply message
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ STEP 1: Intelligent Markdown Detection & Conversion
+            # ═══════════════════════════════════════════════════════════════
+            
+            plain_text, html_text, was_converted = self.markdown_formatter.format_email_response(reply_text)
+            
+            if was_converted:
+                logger.info("   ✨ Markdown formatting applied")
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ STEP 2: Create MIME message with appropriate parts
+            # ═══════════════════════════════════════════════════════════════
+            
             message = MIMEMultipart('alternative')
             
             # Set headers
-            message['To'] = original_message['sender']  # ✅ This now uses Reply-To when present!
+            message['To'] = original_message['sender']  # ✅ This uses Reply-To when present!
             message['Subject'] = f"Re: {original_message['subject']}"
             message['In-Reply-To'] = original_message['message_id']
             message['References'] = original_message['message_id']
             
-            # Create plain text part
-            text_part = MIMEText(reply_text, 'plain', 'utf-8')
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ STEP 3: Attach plain text part
+            # ═══════════════════════════════════════════════════════════════
             
-            # Create HTML part with quoted original message
-            html_body = self._create_html_reply(reply_text, original_message['body'])
-            html_part = MIMEText(html_body, 'html', 'utf-8')
-            
+            text_part = MIMEText(plain_text, 'plain', 'utf-8')
             message.attach(text_part)
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ STEP 4: Attach HTML part (with or without Markdown conversion)
+            # ═══════════════════════════════════════════════════════════════
+            
+            if html_text:
+                # Markdown was detected and converted
+                html_body = self._create_html_reply_with_formatting(
+                    html_text,
+                    original_message['body']
+                )
+            else:
+                # No Markdown, use standard plain HTML
+                html_body = self._create_html_reply(
+                    plain_text,
+                    original_message['body']
+                )
+            
+            html_part = MIMEText(html_body, 'html', 'utf-8')
             message.attach(html_part)
+            
+            # ═══════════════════════════════════════════════════════════════
+            # ✅ STEP 5: Send the message
+            # ═══════════════════════════════════════════════════════════════
             
             # Encode the message
             raw_message = base64.urlsafe_b64encode(
@@ -529,6 +569,10 @@ class GmailManager:
             if original_message.get('has_reply_to'):
                 logger.info(f"   📧 Reply sent to Reply-To address (not original From)")
             
+            # Log if Markdown was used
+            if was_converted:
+                logger.info(f"   ✨ Email sent with formatted HTML (Markdown → HTML)")
+            
             return send_result
             
         except Exception as e:
@@ -538,8 +582,8 @@ class GmailManager:
     def _create_html_reply(self, reply_text: str, original_body: str) -> str:
         """
         Create HTML formatted reply with quoted original message
+        (Used when NO Markdown is detected)
         
-                
         Args:
             reply_text: Reply text
             original_body: Original message body
@@ -561,6 +605,44 @@ class GmailManager:
             </blockquote>
             <br>
             <span style="font-size: 12px; color: #555;">
+                ---<br>
+                Messaggio generato con l'assistenza dell'IA.
+            </span>
+        </div>
+        '''
+        
+        return html
+    
+    def _create_html_reply_with_formatting(self, formatted_html: str, original_body: str) -> str:
+        """
+        ✅ NEW: Create HTML formatted reply with properly converted Markdown
+        
+        This preserves the Markdown-converted HTML structure while adding
+        the original quoted message below.
+        
+        Args:
+            formatted_html: HTML text with converted Markdown formatting
+            original_body: Original message body
+            
+        Returns:
+            Complete HTML formatted reply
+        """
+        # Convert original body to HTML (escape special chars)
+        original_html = original_body.replace('&', '&amp;')
+        original_html = original_html.replace('<', '&lt;')
+        original_html = original_html.replace('>', '&gt;')
+        original_html = original_html.replace('\n', '<br>')
+        
+        html = f'''
+        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #351c75;">
+            {formatted_html}
+            <br><br>
+            <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">
+            <blockquote style="border-left: 2px solid #ccc; margin: 0; padding-left: 12px; color: #555; font-size: 13px;">
+                {original_html}
+            </blockquote>
+            <br>
+            <span style="font-size: 11px; color: #999;">
                 ---<br>
                 Messaggio generato con l'assistenza dell'IA.
             </span>
