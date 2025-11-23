@@ -22,7 +22,7 @@ PUBSUB_SUBSCRIPTION = os.environ.get('PUBSUB_SUBSCRIPTION', 'gmail-notifications
 
 # ============ Gmail Configuration ============
 LABEL_NAME = os.environ.get('LABEL_NAME', 'IA')
-ERROR_LABEL_NAME = os.environ.get('ERROR_LABEL_NAME', 'IA-Error')  # Error label
+ERROR_LABEL_NAME = os.environ.get('ERROR_LABEL_NAME', 'Attenzione')  # Error label
 MAX_EMAILS_PER_RUN = int(os.environ.get('MAX_EMAILS_PER_RUN', '10'))
 
 # ============ Gemini Model Configuration ============
