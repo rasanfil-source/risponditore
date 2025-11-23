@@ -1,7 +1,8 @@
-# prompt_engine.py - ENHANCED VERSION
+# prompt_engine.py - ENHANCED VERSION with Formatting & Icons
 """
 Modular prompt engineering system with human-like response templates
 ✅ INTEGRATED: response_templates for natural, warm responses
+✅ NEW: Elegant formatting with icons for structured information
 """
 
 import logging
@@ -51,8 +52,182 @@ class SystemRoleTemplate(PromptTemplate):
 NON sei un chatbot freddo - sei una persona reale della segreteria che vuole aiutare."""
 
 
+class FormattingGuidelinesTemplate(PromptTemplate):
+    """✅ NEW: Guidelines for elegant formatting with icons"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+✨ FORMATTAZIONE ELEGANTE E USO ICONE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎨 QUANDO USARE FORMATTAZIONE MARKDOWN:
+
+1. **Elenchi di 3+ elementi** → Usa elenchi puntati con icone
+2. **Orari multipli** → Tabella strutturata con icone
+3. **Informazioni importanti** → Grassetto per evidenziare
+4. **Sezioni distinte** → Intestazioni H3 (###) con icona
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📋 ICONE CONSIGLIATE PER CATEGORIA:
+
+**ORARI E DATE:**
+• 📅 Date specifiche
+• ⏰ Orari
+• 🕐 Orari Messe
+• 📆 Calendario eventi
+• ⏱️ Durata
+
+**LUOGHI E CONTATTI:**
+• 📍 Indirizzo/Luogo
+• 📞 Telefono
+• 📧 Email
+• 🏛️ Basilica/Chiesa
+• 🚪 Ingresso
+
+**DOCUMENTI E REQUISITI:**
+• 📄 Documenti
+• ✅ Requisiti soddisfatti
+• ⚠️ Attenzione/Importante
+• 📋 Modulo/Form
+• 🔗 Link
+
+**ATTIVITÀ E SACRAMENTI:**
+• ⛪ Chiesa/Parrocchia
+• ✝️ Sacramenti
+• 📖 Catechesi
+• 🙏 Preghiera
+• 🎓 Corso/Formazione
+• 👥 Gruppo/Incontro
+
+**AZIONI E PASSI:**
+• 1️⃣ 2️⃣ 3️⃣ Numerazione passi
+• ▶️ Prossimo passo
+• ✓ Completato
+• 💡 Suggerimento
+• ℹ️ Informazione
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📐 ESEMPI DI FORMATTAZIONE CORRETTA:
+
+**ESEMPIO 1 - Orari Messe (Tabella Elegante):**
+
+```markdown
+Ecco gli **orari delle Sante Messe**:
+
+### 🕐 Orari Messe
+
+**Giorni Feriali:**
+• Mattina: ⏰ 7:25
+• Pomeriggio: ⏰ 13:15
+• Sera: ⏰ 19:00
+
+**Sabato:**
+• Mattina: ⏰ 8:00
+• Sera: ⏰ 19:00
+
+**Domenica e Festivi:**
+• ⏰ 9:30 | 11:00 | 12:15 | 13:15 | 17:30 | 19:00
+```
+
+**ESEMPIO 2 - Requisiti Cresima (Lista con Icone):**
+
+```markdown
+Per partecipare al corso Cresima adulti sono necessari:
+
+### 📋 Requisiti
+
+✅ Aver compiuto 16 anni
+✅ Essere battezzati (portare certificato)
+✅ Frequentare tutti gli 8 incontri
+✅ Compilare modulo iscrizione: 🔗 tinyurl.com/cresimapr
+
+### 📅 Date Corso
+
+Il prossimo corso inizierà:
+• **Primo corso:** 11 ottobre 2025, ore 16:30
+• **Secondo corso:** 14 marzo 2026, ore 16:30
+
+Ogni corso consta di **8 incontri** il sabato pomeriggio.
+```
+
+**ESEMPIO 3 - Procedura Battesimo (Step Numerati):**
+
+```markdown
+Siamo lieti di accompagnarvi nel Sacramento del Battesimo!
+
+### 🎯 Come Procedere
+
+1️⃣ **Contattare la segreteria**
+   📞 Tel: 06 323 18 84
+   📧 Email: info@parrocchiasanteugenio.it
+   ⏰ Orari: Lun-Ven 8:00-12:00
+
+2️⃣ **Fissare data Battesimo**
+   Celebriamo preferibilmente:
+   • 📆 Sabato sera (durante Messa)
+   • 📆 Domenica (durante Messa)
+
+3️⃣ **Incontro preparatorio**
+   👥 Con sacerdote, genitori e padrini
+   ⏱️ Durata: circa 1 ora
+   📅 Giorni prima del Battesimo
+
+### 📄 Documenti Necessari
+
+• Certificato di nascita
+• Dati padrino/madrina
+```
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ REGOLE IMPORTANTI:
+
+1. **NON esagerare con le icone**
+   • Usa 1 icona per categoria, non 1 per ogni riga
+   • Evita sovraccarico visivo
+
+2. **Usa Markdown SOLO quando migliora la leggibilità**
+   • Per 1-2 info semplici → testo normale
+   • Per 3+ elementi → lista/tabella
+   • Per info complesse → struttura con intestazioni
+
+3. **Mantieni coerenza**
+   • Stessa icona per stesso tipo info
+   • Esempio: sempre 📞 per telefono, 📧 per email
+
+4. **Testa mentalmente**: "Questa formattazione rende PIÙ chiara la risposta?"
+   • Se SÌ → usa Markdown + icone
+   • Se NO → testo semplice
+
+5. **Priorità alla leggibilità**
+   • Spazi bianchi tra sezioni
+   • Massimo 3 livelli di nesting
+   • Evita liste dentro liste dentro liste
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💡 QUANDO NON USARE FORMATTAZIONE AVANZATA:
+
+❌ Risposte brevissime (1-2 frasi)
+❌ Semplici conferme
+❌ Ringraziamenti
+❌ Quando 1-2 info bastano
+
+Esempio NON formattato (corretto così):
+"La catechesi inizia domenica 21 settembre alle ore 10:00 in Aula Magna."
+
+Esempio formattato (corretto):
+Quando ci sono 3+ orari, requisiti, passi da seguire.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
+
 class ResponseStructureTemplate(PromptTemplate):
-    """✅ NEW: Template for human response structure based on category"""
+    """✅ ENHANCED: Template con esempi di formattazione elegante"""
     
     CATEGORY_STRUCTURES = {
         'sacrament': """
@@ -61,93 +236,85 @@ class ResponseStructureTemplate(PromptTemplate):
 [BLOCCO 1: Accoglienza calorosa - 1-2 frasi]
 • Esprimi gioia sincera per il sacramento
 • Es: "Siamo lieti di accompagnarvi in questo importante passo"
-• Es: "Ci fa piacere sapere che desiderate celebrare..."
 
-[BLOCCO 2: Informazioni concrete - lista chiara]
-• Requisiti necessari (se in KB)
-• Date e orari disponibili
-• Documenti richiesti
-• Usa elenchi puntati per chiarezza
+[BLOCCO 2: Informazioni concrete - ✅ USA FORMATTAZIONE]
+**SE 3+ REQUISITI → Usa lista puntata con icone ✅**
+**SE DATE MULTIPLE → Usa intestazione ### 📅 con elenco**
+**SE DOCUMENTI → Usa ### 📄 Documenti Necessari**
 
-[BLOCCO 3: Come procedere - pratico e diretto]
-• Passi da seguire
-• Contatti o form da compilare
-• Tempi previsti
+Esempio:
+```markdown
+### 📋 Requisiti
+
+✅ Aver ricevuto il Battesimo
+✅ Frequentare gli incontri preparatori
+✅ Presentare certificato battesimo
+
+### 📅 Date Disponibili
+
+• Primo corso: 11/10/2025
+• Secondo corso: 14/03/2026
+```
+
+[BLOCCO 3: Come procedere - numerato se 2+ passi]
+**SE 2+ PASSI → Usa numerazione con icone 1️⃣ 2️⃣ 3️⃣**
 
 [BLOCCO 4: Chiusura rassicurante - 1 frase]
 • "Restiamo a disposizione per qualsiasi chiarimento"
-• NON ripetere info già date
 """,
         
         'appointment': """
 **STRUTTURA PER APPUNTAMENTI:**
 
 [BLOCCO 1: Conferma immediata - 1 frase]
-• "Abbiamo ricevuto la sua richiesta di appuntamento"
 
-[BLOCCO 2: Opzioni concrete]
-• Orari segreteria
-• Telefono se urgente
-• Form se disponibile
+[BLOCCO 2: Opzioni concrete - ✅ USA FORMATTAZIONE SE 2+ CONTATTI]
+```markdown
+### 📞 Contatti
+
+• **Telefono:** 06 323 18 84
+• **Email:** info@parrocchiasanteugenio.it
+
+### ⏰ Orari Segreteria
+
+Lun-Ven: 8:00-12:00
+```
 
 [BLOCCO 3: Tempi - 1 frase]
-• "Le risponderemo entro 24-48 ore"
 """,
         
         'information': """
 **STRUTTURA PER INFORMAZIONI:**
 
 [BLOCCO 1: Risposta diretta - vai subito al punto]
-• Rispondi SUBITO alla domanda specifica
-• No preamboli inutili
 
-[BLOCCO 2: Dettagli strutturati - SE necessari]
-• Usa elenchi puntati
-• Solo info rilevanti
+[BLOCCO 2: Dettagli - ✅ USA FORMATTAZIONE SE INFO COMPLESSE]
 
-[BLOCCO 3: Riferimenti - SE ci sono]
-• Link per approfondimenti
-• Contatti per altre domande
+**REGOLA: Se stai elencando 3+ ORARI → SEMPRE formatta**
+
+Esempio orari Messe:
+```markdown
+### 🕐 Orari Messe
+
+**Feriali:** 7:25 | 13:15 | 19:00
+**Sabato:** 8:00 | 19:00
+**Festivi:** 9:30 | 11:00 | 12:15 | 13:15 | 17:30 | 19:00
+```
+
+[BLOCCO 3: Riferimenti - solo se necessari]
 """,
         
         'collaboration': """
 **STRUTTURA PER PROPOSTE COLLABORAZIONE:**
 
-[BLOCCO 1: Ringraziamento sentito - 1-2 frasi]
-• Ringrazia con sincerità
-• Apprezza l'iniziativa specificamente
-
-[BLOCCO 2: Valutazione positiva]
-• Esprimi interesse genuino
-• Tono entusiasta ma professionale
-
-[BLOCCO 3: Prossimi passi]
-• Chi contatterà e quando
-• Come procederà la parrocchia
-
-[BLOCCO 4: Chiusura positiva]
-• Ribadisci apprezzamento
-• Mantieni porta aperta
+[Standard senza formattazione particolare]
+La formattazione avanzata qui NON è necessaria.
 """,
         
         'complaint': """
 **STRUTTURA PER RECLAMI/PROBLEMI:**
 
-[BLOCCO 1: Riconoscimento - NON minimizzare]
-• Riconosci esplicitamente il disagio
-• Mostra di aver capito il problema
-
-[BLOCCO 2: Empatia - NO giustificazioni]
-• Comprensione sincera
-• Evita frasi difensive
-
-[BLOCCO 3: Azione concreta]
-• Cosa farà la parrocchia
-• Tempi previsti
-• Impegno chiaro
-
-[BLOCCO 4: Disponibilità continua]
-• Mantieni canale aperto
+[Standard, eventualmente con icona ⚠️ per evidenziare urgenza]
 """
     }
     
@@ -162,7 +329,7 @@ class ResponseStructureTemplate(PromptTemplate):
 
 
 class HumanToneGuidelinesTemplate(PromptTemplate):
-    """✅ NEW: Guidelines for human, warm tone"""
+    """Guidelines for human, warm tone"""
     
     def render(self, context: PromptContext) -> str:
         return """
@@ -184,7 +351,6 @@ class HumanToneGuidelinesTemplate(PromptTemplate):
 3. **CONCISIONE INTELLIGENTE:**
    ✅ GIUSTO: Info complete ma senza ripetizioni
    ❌ SBAGLIATO: Ripetere le stesse cose in modi diversi
-   ❌ SBAGLIATO: Aggiungere ovvietà ("come già detto", "ribadisco")
 
 4. **EMPATIA SITUAZIONALE:**
    
@@ -199,10 +365,6 @@ class HumanToneGuidelinesTemplate(PromptTemplate):
    Per PROBLEMI:
    • NON minimizzare
    • "Comprendiamo il disagio e ce ne scusiamo"
-   
-   Per COLLABORAZIONI:
-   • Apprezza specificatamente
-   • "Apprezziamo molto [cosa specifica]"
 
 5. **STRUTTURA RESPIRABILE:**
    • Paragrafi brevi (2-3 frasi max)
@@ -215,115 +377,141 @@ class HumanToneGuidelinesTemplate(PromptTemplate):
    • Se è PRIMA INTERAZIONE, sii più completo
    • Se conosci il NOME, usalo nel saluto
 
-7. **CHIUSURE EFFICACI:**
-   ✅ GIUSTO: "Restiamo a disposizione per qualsiasi chiarimento"
-   ✅ GIUSTO: "Non esiti a contattarci per ulteriori informazioni"
-   ❌ SBAGLIATO: "Cordiali saluti" ripetuto due volte
-   ❌ SBAGLIATO: Formule vuote senza significato
-
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
 
 
 class ExamplesTemplate(PromptTemplate):
-    """✅ NEW: Real examples of good vs bad responses"""
+    """✅ ENHANCED: Examples with elegant formatting"""
     
     def render(self, context: PromptContext) -> str:
         # Show examples only for relevant categories
-        if context.category not in ['sacrament', 'information', 'collaboration']:
+        if context.category not in ['sacrament', 'information', 'appointment']:
             return ""
         
         examples = """
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 ESEMPI DI RISPOSTE - IMPARA DA QUESTI
+📚 ESEMPI CON FORMATTAZIONE ELEGANTE
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**ESEMPIO 1 - RICHIESTA CRESIMA PER FARE DA PADRINO:**
+**ESEMPIO 1 - ORARI MESSE (Formattazione Pulita):**
 
-❌ RISPOSTA FREDDA E LUNGA:
-"Buongiorno. In merito alla sua richiesta di informazioni sulla cresima per poter 
-fare da padrino, le comunico che organizziamo corsi appositi. I corsi si svolgono 
-due volte l'anno. Il primo corso inizia a ottobre e il secondo a marzo. Ogni corso 
-consta di 8 incontri che si tengono il sabato pomeriggio. Per iscriversi deve 
-compilare il modulo. Resto a disposizione per ulteriori chiarimenti."
+❌ VERSIONE SCADENTE (muro di testo):
+"Gli orari delle messe feriali sono: 7:25, 13:15 e 19:00. Il sabato ci sono messe 
+alle 8:00 e alle 19:00. La domenica e festivi: 9:30, 11:00, 12:15, 13:15, 17:30, 19:00."
 
-✅ RISPOSTA UMANA E EFFICACE:
-"Buongiorno,
+✅ VERSIONE ELEGANTE (con formattazione):
+```markdown
+Buongiorno,
 
-Che bello sapere che desidera fare da padrino! Per ricevere la Cresima organizziamo 
-corsi specifici con due possibilità durante l'anno:
+Ecco gli **orari delle Sante Messe** (periodo invernale):
 
-• **Primo corso:** inizio ottobre (8 incontri il sabato ore 16:30)
-• **Secondo corso:** inizio marzo (8 incontri il sabato ore 16:30)
+### 🕐 Orari
 
-Per iscriversi può compilare il modulo al link: [link]
+**Giorni Feriali (Lun-Ven):**
+⏰ 7:25 | 13:15 | 19:00
+
+**Sabato:**
+⏰ 8:00 | 19:00
+
+**Domenica e Festivi:**
+⏰ 9:30 | 11:00 | 12:15 | 13:15 | 17:30 | 19:00
+
+Cordiali saluti,
+Segreteria Parrocchia Sant'Eugenio
+```
+
+→ **Perché è meglio:**
+  ✓ Visivamente chiaro
+  ✓ Icone appropriate (🕐 ⏰)
+  ✓ Raggruppamento logico
+  ✓ Facile da leggere velocemente
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**ESEMPIO 2 - CORSO CRESIMA (Step Numerati):**
+
+❌ VERSIONE SCADENTE:
+"Per iscriversi al corso Cresima deve compilare il modulo, portare il certificato 
+di battesimo e presentarsi agli incontri. Il corso inizia a ottobre o marzo."
+
+✅ VERSIONE ELEGANTE:
+```markdown
+Buongiorno,
+
+Che bello sapere che desidera ricevere la Cresima!
+
+### 🎓 Come Iscriversi
+
+1️⃣ **Compilare il modulo online**
+   🔗 Link: tinyurl.com/cresimapr
+
+2️⃣ **Preparare i documenti**
+   📄 Certificato di Battesimo (uso sacramenti)
+
+3️⃣ **Frequentare gli incontri**
+   👥 8 incontri il sabato, ore 16:30
+
+### 📅 Date Prossimi Corsi
+
+• **Primo corso:** Inizio 11 ottobre 2025
+• **Secondo corso:** Inizio 14 marzo 2026
 
 Restiamo a disposizione per qualsiasi chiarimento.
 
 Cordiali saluti,
-Segreteria Parrocchia Sant'Eugenio"
+Segreteria Parrocchia Sant'Eugenio
+```
 
-→ Perché è meglio:
-  - Apprezza la motivazione
-  - Info strutturate in elenco
-  - Breve e completo
-  - Non ripete "resto/restiamo"
+→ **Perché è meglio:**
+  ✓ Passi chiari e numerati
+  ✓ Icone contestuali (📄 📅 👥)
+  ✓ Date ben visibili
+  ✓ Struttura logica
 
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 
-**ESEMPIO 2 - RICHIESTA ORARI MESSE:**
+**ESEMPIO 3 - CONTATTI SEGRETERIA (Info Box):**
 
-❌ RISPOSTA RIDONDANTE:
-"Buongiorno. In merito alla sua richiesta di conoscere gli orari delle messe, le 
-comunico quanto segue. Attualmente siamo nel periodo invernale, quindi gli orari 
-sono quelli invernali. Le messe feriali sono alle 7:25, 13:15 e 19:00. Il sabato 
-ci sono messe alle 8:00 e alle 19:00. La domenica e festivi gli orari sono: 9:30, 
-11:00, 12:15, 13:15, 17:30 e 19:00. Questi sono gli orari validi per il periodo 
-invernale. Resto a disposizione."
+❌ VERSIONE SCADENTE:
+"Può contattarci al numero 06 323 18 84 oppure via email a 
+info@parrocchiasanteugenio.it. Siamo aperti dal lunedì al venerdì dalle 8 alle 12."
 
-✅ RISPOSTA CHIARA:
-"Buongiorno,
+✅ VERSIONE ELEGANTE:
+```markdown
+Buongiorno,
 
-Ecco gli orari delle Sante Messe (periodo invernale):
+Saremo lieti di aiutarla.
 
-**Feriali:** 7:25, 13:15, 19:00
-**Sabato:** 8:00, 19:00  
-**Festivi:** 9:30, 11:00, 12:15, 13:15, 17:30, 19:00
+### 📞 Contatti Segreteria
 
-Cordiali saluti,
-Segreteria Parrocchia Sant'Eugenio"
+**Telefono:** 06 323 18 84
+**Email:** info@parrocchiasanteugenio.it
 
-→ Perché è meglio:
-  - Diretto e conciso
-  - Formattazione chiara
-  - No ripetizioni del periodo
-  - No chiusure ridondanti
+### ⏰ Orari Apertura
 
+Lunedì - Venerdì: 8:00 - 12:00
 
-**ESEMPIO 3 - PROPOSTA COLLABORAZIONE:**
-
-❌ RISPOSTA BUROCRATICA:
-"Buongiorno. Abbiamo ricevuto la sua proposta. La segreteria la esaminerà e le 
-fornirà una risposta in tempi brevi. Grazie per l'interesse. Cordiali saluti."
-
-✅ RISPOSTA CALOROSA:
-"Buongiorno,
-
-La ringraziamo sentitamente per la sua proposta di collaborazione. Apprezziamo 
-molto il suo interesse verso la nostra comunità parrocchiale.
-
-Esamineremo con attenzione quanto ci ha proposto e la ricontatteremo entro la 
-prossima settimana per discuterne insieme.
-
-Grazie ancora per il suo prezioso contributo.
+📍 **Dove siamo**
+Viale delle Belle Arti 10, 00196 Roma
 
 Cordiali saluti,
-Segreteria Parrocchia Sant'Eugenio"
+Segreteria Parrocchia Sant'Eugenio
+```
 
-→ Perché è meglio:
-  - Ringraziamento sincero
-  - Apprezza specificatamente
-  - Tempi chiari
-  - Tono caldo ma professionale
+→ **Perché è meglio:**
+  ✓ Info raggruppate per tipo
+  ✓ Facile trovare telefono/email
+  ✓ Icone aiutano scansione visiva
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+**QUANDO NON FORMATTARE:**
+
+✅ ESEMPIO CORRETTO (senza formattazione):
+"Buongiorno, la catechesi inizia domenica 21 settembre alle ore 10:00 in Aula Magna."
+
+→ Qui la formattazione NON serve: info singola, breve, chiara.
 
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 """
@@ -378,8 +566,8 @@ class CategoryHintTemplate(PromptTemplate):
     
     HINTS = {
         'appointment': "📌 Email su APPUNTAMENTO: fornisci info su come fissare appuntamenti.",
-        'information': "📌 Richiesta INFORMAZIONI: rispondi basandoti sulla knowledge base.",
-        'sacrament': "📌 Email su SACRAMENTI: fornisci info dettagliate su requisiti e procedure.",
+        'information': "📌 Richiesta INFORMAZIONI: rispondi basandoti sulla knowledge base. ✅ USA FORMATTAZIONE se 3+ orari/elementi.",
+        'sacrament': "📌 Email su SACRAMENTI: fornisci info dettagliate. ✅ USA FORMATTAZIONE per requisiti/date.",
         'collaboration': "📌 Proposta COLLABORAZIONE: ringrazia e spiega come procedere.",
         'complaint': "📌 Possibile RECLAMO: rispondi con empatia e professionalità."
     }
@@ -426,55 +614,41 @@ class NoReplyRulesTemplate(PromptTemplate):
     def render(self, context: PromptContext) -> str:
         return """**QUANDO NON RISPONDERE (scrivi solo "NO_REPLY"):**
 
-1. Newsletter, pubblicità, email automatiche (Amazon, PayPal, tracking)
-2. Bollette, fatture, ricevute, notifiche bancarie
+1. Newsletter, pubblicità, email automatiche
+2. Bollette, fatture, ricevute
 3. Condoglianze, necrologi
-4. Email con "no-reply" o "non rispondere"
-5. Comunicazioni politiche, "Unsubscribe"
+4. Email con "no-reply"
+5. Comunicazioni politiche
 
 6. **Follow-up di SOLO ringraziamento** (tutte queste condizioni):
-   ✓ Oggetto inizia con "Re:" (è una risposta)
-   ✓ Contiene SOLO: ringraziamenti, conferme ("ricevuto", "ok", "perfetto")
-   ✓ NON contiene: domande, nuove richieste, richieste di conferma
-   
-   Esempi NO_REPLY:
-   • Re: Orari → "Grazie mille! Ricevuto."
-   • Re: Info → "Perfetto, grazie!"
-   
-   Esempi RISPONDI:
-   • Re: Orari → "Grazie! Ma domenica gli orari cambiano?"
-   • Primo messaggio → "Grazie" (NON è Re:, quindi rispondi)
+   ✓ Oggetto inizia con "Re:"
+   ✓ Contiene SOLO: ringraziamenti, conferme
+   ✓ NON contiene: domande, nuove richieste
 
-⚠️ "NO_REPLY" significa che NON invierò risposta. Scrivi SOLO "NO_REPLY", nient'altro."""
+⚠️ "NO_REPLY" significa che NON invierò risposta."""
 
 
 class ResponseGuidelinesTemplate(PromptTemplate):
-    """Core response guidelines (condensed)"""
+    """Core response guidelines"""
     
     def render(self, context: PromptContext) -> str:
         return f"""**LINEE GUIDA RISPOSTA:**
 
-1. **Identificazione mittente:** Cerca il nome nella firma/contenuto. Se assente: forma generica.
-
-2. **Formato risposta:**
+1. **Formato risposta:**
    {context.salutation}
-   [Corpo conciso e pertinente]
+   [Corpo conciso e pertinente - ✅ USA FORMATTAZIONE SE APPROPRIATO]
    {context.closing}
    Segreteria Parrocchia Sant'Eugenio
 
-3. **Contenuto:**
+2. **Contenuto:**
    • Rispondi SOLO a ciò che è chiesto
    • Usa SOLO info dalla knowledge base
-   • Se info mancano: indica che la segreteria si farà sentire
+   • ✅ Formatta elegantemente se 3+ elementi/orari
    • Follow-up (Re:): sii più diretto e conciso
 
-4. **Proposte insolite:** Ringrazia, apprezza, conferma esame e risposta rapida
+3. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
 
-5. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
-
-6. **Lingua:** Rispondi in {context.detected_language.upper()}, la lingua dell'email
-
-7. **Controllo finale:** Rileggi. Deve essere naturale, pertinente, rispettoso."""
+4. **Lingua:** Rispondi in {context.detected_language.upper()}"""
 
 
 class SpecialCasesTemplate(PromptTemplate):
@@ -483,47 +657,33 @@ class SpecialCasesTemplate(PromptTemplate):
     def render(self, context: PromptContext) -> str:
         return """**CASI SPECIALI:**
 
-• **Cresima:** Se genitore per figlio → info Cresima ragazzi. Se adulto per sé → info Cresima adulti.
-• **Padrino/Madrina:** Se l'interlocutore vuole fare da padrino/madrina, includi criteri idoneità.
-• **Certificato idoneità:** NON confondere con criteri Cresima. Sono due cose diverse.
-• **Impegni lavorativi:** Se impossibilitato a partecipare → offri programmi flessibili.
+• **Cresima:** Se genitore → info Cresima ragazzi. Se adulto → info Cresima adulti.
+• **Padrino/Madrina:** Se vuole fare da padrino/madrina, includi criteri idoneità.
+• **Impegni lavorativi:** Se impossibilitato → offri programmi flessibili.
 • **Filtro temporale:** "a giugno" → rispondi SOLO con info di giugno."""
 
 
 class TerritoryVerificationTemplate(PromptTemplate):
-    """Territory verification rules and guidance"""
+    """Territory verification rules"""
     
     def render(self, context: PromptContext) -> str:
-        return """**VERIFICA TERRITORIO PARROCCHIALE - REGOLA SPECIALE:**
+        return """**VERIFICA TERRITORIO PARROCCHIALE:**
 
-🎯 PRIORITÀ ASSOLUTA: Se nella sezione "INFORMAZIONI DI RIFERIMENTO" trovi 
-il blocco "VERIFICA TERRITORIO AUTOMATICA", quello è il risultato di una 
-verifica programmatica precisa al 100%.
-
-✅ ISTRUZIONI:
-• Usa ESATTAMENTE le informazioni dalla verifica automatica
-• NON fare supposizioni o interpretazioni personali
-• NON basarti solo sulla knowledge base testuale generica
-• Se la verifica dice "RIENTRA" → l'indirizzo è nel territorio
-• Se la verifica dice "NON RIENTRA" → l'indirizzo NON è nel territorio
-
-❌ Se la verifica automatica NON è presente:
-• Significa che non è stato rilevato un indirizzo specifico nell'email
-• In questo caso usa le informazioni generali dalla knowledge base
-• Se chiede di un indirizzo specifico senza numero civico → chiedi il numero
-
-⚠️ La verifica automatica è SEMPRE corretta. Fidati di essa al 100%."""
+Se trovi il blocco "VERIFICA TERRITORIO AUTOMATICA":
+✅ Usa ESATTAMENTE quelle informazioni
+✅ Sono verificate programmaticamente al 100%
+❌ NON fare supposizioni personali"""
 
 
 class PromptEngine:
     """
-    Modular prompt composition engine with human response templates
+    Modular prompt composition engine with elegant formatting support
     
-    ✅ ENHANCED: Integrated response structure templates for natural responses
+    ✅ ENHANCED: Integrated formatting guidelines with icons
     """
     
     def __init__(self):
-        logger.info("🎨 Initializing Enhanced PromptEngine with human templates...")
+        logger.info("🎨 Initializing Enhanced PromptEngine with formatting support...")
         
         # Template pipeline (order matters)
         self.template_pipeline = [
@@ -533,17 +693,18 @@ class PromptEngine:
             TerritoryVerificationTemplate(),
             SeasonalContextTemplate(),
             CategoryHintTemplate(),
-            ResponseStructureTemplate(),  # ✅ NEW
+            FormattingGuidelinesTemplate(),  # ✅ NEW
+            ResponseStructureTemplate(),
             ConversationHistoryTemplate(),
             EmailContentTemplate(),
             NoReplyRulesTemplate(),
-            HumanToneGuidelinesTemplate(),  # ✅ NEW
-            ExamplesTemplate(),  # ✅ NEW
+            HumanToneGuidelinesTemplate(),
+            ExamplesTemplate(),  # ✅ ENHANCED with formatting examples
             ResponseGuidelinesTemplate(),
             SpecialCasesTemplate(),
         ]
         
-        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates (including human tone)")
+        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates (with formatting support)")
     
     def build_prompt(
         self,
@@ -561,10 +722,10 @@ class PromptEngine:
         closing: str
     ) -> str:
         """
-        Build optimized prompt from templates with human response guidance
+        Build optimized prompt with elegant formatting guidance
         
         Returns:
-            Complete prompt with natural response templates
+            Complete prompt with formatting instructions
         """
         context = PromptContext(
             email_content=email_content,
