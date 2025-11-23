@@ -726,10 +726,10 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
         r'se\s+non\s+vuoi\s+più\s+ricevere',
     ]
 
-for pattern in italian_newsletter_footer:
-    if re.search(pattern, text, re.IGNORECASE):
-        logger.info(f"✗ Ignored by Italian newsletter footer pattern")
-        return True
+    for pattern in italian_newsletter_footer:
+        if re.search(pattern, text, re.IGNORECASE):
+            logger.info(f"✗ Ignored by Italian newsletter footer pattern")
+            return True
 
     # ═══════════════════════════════════════════════════════════════
     # ✅ NUOVO: FILTRO 7 - COMBINAZIONI SOSPETTE
