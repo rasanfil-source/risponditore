@@ -716,15 +716,15 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
 # ✅ NUOVO: FILTRO 6B - FOOTER NEWSLETTER ITALIANI
 # ═══════════════════════════════════════════════════════════════
 
-italian_newsletter_footer = [
-    r'privacy\s+policy.*(?:disiscriviti|annulla)',
-    r'aggiorna\s+le\s+tue\s+preferenze.*disiscriviti',
-    r'gestisci\s+(?:le\s+tue\s+)?(?:preferenze|iscrizioni)',
-    r'(?:clicca|click)\s+qui\s+per\s+(?:disiscriverti|annullare)',
-    r'non\s+desideri\s+più\s+ricevere',
-    r'per\s+non\s+ricevere\s+più',
-    r'se\s+non\s+vuoi\s+più\s+ricevere',
-]
+    italian_newsletter_footer = [
+        r'privacy\s+policy.*(?:disiscriviti|annulla)',
+        r'aggiorna\s+le\s+tue\s+preferenze.*disiscriviti',
+        r'gestisci\s+(?:le\s+tue\s+)?(?:preferenze|iscrizioni)',
+        r'(?:clicca|click)\s+qui\s+per\s+(?:disiscriverti|annullare)',
+        r'non\s+desideri\s+più\s+ricevere',
+        r'per\s+non\s+ricevere\s+più',
+        r'se\s+non\s+vuoi\s+più\s+ricevere',
+    ]
 
 for pattern in italian_newsletter_footer:
     if re.search(pattern, text, re.IGNORECASE):
