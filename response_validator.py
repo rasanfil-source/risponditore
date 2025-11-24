@@ -365,13 +365,29 @@ class ResponseValidator:
         response_lower = response.lower()
         
         # Check forbidden phrases (uncertainty indicators)
-        found_forbidden = [phrase for phrase in self.forbidden_phrases if phrase in response_lower]
+        # Check forbidden phrases (uncertainty indicators)
+        found_forbidden = [
+            phrase for phrase in self.forbidden_phrases if phrase in response_lower
+        ]
         if found_forbidden:
             errors.append(f"Contains uncertainty phrases: {', '.join(found_forbidden[:2])}")
             score *= 0.50
         
         # Check placeholders (incomplete response)
-        found_placeholders = [p for p in self.placeholders if p.lower() in response_lower]
+        # ✅ FIXED: Ignora parentesi quadre isolate che potrebbero essere parte di testo normale
+        found_placeholders = []
+        for p in self.placeholders:
+            if p == '[':
+                # Controlla solo pattern tipo [...] o [XXX] o [insert]
+                if re.search(r'\[\s*(\.{3,}|[A-Z_]{3,}|insert)\s*\]', response_lower):
+                    found_placeholders.append(p)
+            elif p == ']':
+                # Check for standalone ']' which might indicate an unclosed placeholder
+                if ']' in response_lower and '[' not in response_lower:
+                    found_placeholders.append(p)
+            elif p.lower() in response_lower:
+                found_placeholders.append(p)
+        
         if found_placeholders:
             errors.append(f"Contains placeholders: {', '.join(found_placeholders)}")
             score = 0.0
@@ -380,6 +396,13 @@ class ResponseValidator:
         if 'NO_REPLY' in response and len(response.strip()) > 20:
             errors.append("Contains 'NO_REPLY' instruction (should have been filtered)")
             score = 0.0
+        
+        return {
+            'score': score,
+            'errors': errors,
+            'found_forbidden': found_forbidden,
+            'found_placeholders': found_placeholders
+        }
         
         return {
             'score': score,
