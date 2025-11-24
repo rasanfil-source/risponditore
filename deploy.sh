@@ -9,4 +9,3 @@ gcloud functions deploy process-parish-emails-pubsub \
   --timeout=300s \
   --env-vars-file=.env.yaml \
   --service-account=parish-secretary-sa@ordinal-gear-472720-h5.iam.gserviceaccount.com
-  

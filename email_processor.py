@@ -4,19 +4,15 @@ Coordinates filtering, classification, and response generation
 ✅ CLEANED VERSION: Removed duplications and deprecated methods
 ✅ FIXED: Better territory validation logging
 ✅ FIXED: Uses only ResponseValidator (removed legacy validation)
-✅ NEW: Event booking system integration
 """
 
 import logging
-import re
 from typing import Dict, Optional, List
 from gmail_service import GmailManager
 from sheets_service import SheetsManager
 from gemini_service import GeminiService
 from nlp_classifier import EmailClassifier
 from response_validator import ResponseValidator
-from event_booking import EventBookingManager  # ✅ NUOVO
-from event_notifications import EventNotificationManager  # ✅ NUOVO
 from utils import (
     should_ignore_email,
     apply_replacements,
@@ -38,7 +34,6 @@ class EmailProcessor:
     - Uses only ResponseValidator for all validation
     - Smart KB truncation preserving structure
     - Better error handling with error labels
-    - Event booking system integration
     """
 
     def __init__(self):
@@ -71,21 +66,6 @@ class EmailProcessor:
         
         self.validator = ResponseValidator()
         logger.info("✓ Response validator initialized")
-        
-        # ✅ NUOVO: Initialize event booking system
-        try:
-            self.booking_manager = EventBookingManager(self.sheets, self.gemini)
-            logger.info("✓ Event booking manager initialized")
-            
-            self.notification_manager = EventNotificationManager(
-                self.booking_manager,
-                self.gmail
-            )
-            logger.info("✓ Event notification manager initialized")
-        except Exception as e:
-            logger.warning(f"⚠️  Event booking system initialization failed: {e}")
-            self.booking_manager = None
-            self.notification_manager = None
         
         # Load resources
         self._load_resources()
@@ -281,10 +261,9 @@ class EmailProcessor:
         1. Extract messages
         2. Fast domain/keyword filters
         3. NLP classification
-        4. Event booking check (NEW)
-        5. Gemini response generation
-        6. Advanced response validation
-        7. Post-processing and sending
+        4. Gemini response generation
+        5. Advanced response validation
+        6. Post-processing and sending
 
         Args:
             thread: Gmail thread object
@@ -347,6 +326,7 @@ class EmailProcessor:
                 classification['reason'] = 'force_reply'
 
             # === STAGE 2c: Gemini Lightweight Decision Check ===
+            # Only if NLP classifier said "should reply", double-check with Gemini
             if classification['should_reply']:
                 logger.info(f"   🤔 Stage 2c: Gemini decision check...")
                 
@@ -398,103 +378,8 @@ class EmailProcessor:
             if len(final_knowledge_base) > config.MAX_KNOWLEDGE_BASE_CHARS:
                 final_knowledge_base = self._smart_truncate_kb(final_knowledge_base)
 
-            # === STAGE 3b: EVENT BOOKING CHECK ===
-            booking_context = None
-            
-            if self.booking_manager:
-                logger.info(f"   🎫 Stage 3b: Event booking check...")
-                
-                try:
-                    # Parse events from KB
-                    limited_events = self.booking_manager.parse_events_from_kb(final_knowledge_base)
-                    
-                    if limited_events:
-                        # Identify if email refers to an event
-                        identified_event = self.booking_manager.identify_event_from_email(
-                            message_details['subject'],
-                            message_details['body'],
-                            limited_events
-                        )
-                        
-                        if identified_event:
-                            logger.info(f"      🎫 Request for event: '{identified_event['name']}'")
-                            
-                            # Check if cancellation
-                            is_cancellation = re.search(
-                                r'\b(cancel|disdic|annull|rinunc)',
-                                message_details['body'],
-                                re.IGNORECASE
-                            )
-                            
-                            if is_cancellation:
-                                result = self.booking_manager.cancel_booking(
-                                    identified_event['name'],
-                                    message_details['sender_email']
-                                )
-                                booking_context = {
-                                    'type': 'cancellation',
-                                    'event': identified_event['name'],
-                                    'result': result
-                                }
-                                logger.info(f"      🗑️  Cancellation processed: {result['success']}")
-                            else:
-                                # Check availability
-                                availability = self.booking_manager.check_availability(
-                                    identified_event['name'],
-                                    identified_event['max_seats']
-                                )
-                                
-                                if availability['available']:
-                                    # Register booking
-                                    booking = self.booking_manager.register_booking(
-                                        identified_event['name'],
-                                        message_details['sender_email'],
-                                        message_details['sender_name'],
-                                        identified_event['max_seats']
-                                    )
-                                    
-                                    booking_context = {
-                                        'type': 'booking',
-                                        'event': identified_event['name'],
-                                        'booking': booking,
-                                        'availability': availability
-                                    }
-                                    
-                                    logger.info(f"      ✅ Booking registered: {booking['type']}")
-                                    
-                                    # Check if event just became full
-                                    if booking['type'] == 'confirmed' and self.notification_manager:
-                                        new_availability = self.booking_manager.check_availability(
-                                            identified_event['name'],
-                                            identified_event['max_seats']
-                                        )
-                                        
-                                        if not new_availability['available']:
-                                            logger.info(f"      🎉 Event just reached max capacity!")
-                                            self.notification_manager.send_event_full_notification(
-                                                identified_event['name'],
-                                                identified_event['max_seats'],
-                                                identified_event.get('event_date')
-                                            )
-                                else:
-                                    # Event full
-                                    booking_context = {
-                                        'type': 'full',
-                                        'event': identified_event['name'],
-                                        'availability': availability
-                                    }
-                                    logger.info(f"      ⛔ Event full: {availability['current']}/{availability['max']}")
-                    else:
-                        logger.info(f"      ℹ️  No events with limited seats found in KB")
-                        
-                except Exception as e:
-                    logger.warning(f"      ⚠️  Event booking check failed: {e}")
-                    # Continue processing without booking context
-
             # === STAGE 4: Gemini Response Generation ===
             logger.info(f"   🤖 Stage 4: Generating AI response...")
-            
-            # Pass booking context to Gemini (will be integrated in prompt)
             ai_response = self.gemini.generate_response(
                 message_details['body'],
                 message_details['subject'],
@@ -502,8 +387,7 @@ class EmailProcessor:
                 message_details['sender_name'],
                 message_details['sender_email'],
                 summarized_history,
-                category=classification.get('category'),
-                booking_context=booking_context  # ✅ NUOVO parametro
+                category=classification.get('category')
             )
 
             # Check if response was generated
@@ -613,8 +497,7 @@ class EmailProcessor:
             return {
                 'status': 'replied',
                 'validation_score': validation_result.score,
-                'warnings_count': len(validation_result.warnings),
-                'booking_processed': booking_context is not None  # ✅ NUOVO
+                'warnings_count': len(validation_result.warnings)
             }
 
         except Exception as e:
@@ -693,20 +576,12 @@ class EmailProcessor:
         Returns:
             Dictionary with statistics
         """
-        stats = {
+        return {
             'knowledge_base_size': len(self.knowledge_base) if hasattr(self, 'knowledge_base') else 0,
             'ignore_keywords_count': len(self.ignore_keywords) if hasattr(self, 'ignore_keywords') else 0,
             'ignore_domains_count': len(self.ignore_domains) if hasattr(self, 'ignore_domains') else 0,
             'replacements_count': len(self.replacements) if hasattr(self, 'replacements') else 0,
         }
-        
-        # ✅ NUOVO: Add booking system stats
-        if self.booking_manager:
-            stats['event_booking_enabled'] = True
-        else:
-            stats['event_booking_enabled'] = False
-        
-        return stats
     
     def reload_resources(self):
         """
