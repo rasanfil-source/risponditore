@@ -359,3 +359,17 @@ except ValueError as e:
     print("   Se stai testando localmente, assicurati di aver configurato le variabili d'ambiente.")
     # Non solleva l'eccezione durante l'import per permettere test locali
     # raise
+
+    
+# ═══════════════════════════════════════════════════════════════
+# GEMINI QUICK CHECK SETTINGS
+# ═══════════════════════════════════════════════════════════════
+
+# Feature flag: enable/disable Gemini lightweight check
+ENABLE_GEMINI_QUICK_CHECK = get_env_bool('ENABLE_GEMINI_QUICK_CHECK', True)
+
+# Timeout for quick check (seconds)
+GEMINI_QUICK_CHECK_TIMEOUT = int(os.getenv('GEMINI_QUICK_CHECK_TIMEOUT', '10'))
+
+# Max output tokens for quick check (keep it low)
+GEMINI_QUICK_CHECK_MAX_TOKENS = int(os.getenv('GEMINI_QUICK_CHECK_MAX_TOKENS', '5'))

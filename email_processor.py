@@ -330,6 +330,31 @@ class EmailProcessor:
                 self.gmail.add_label_to_thread(thread['id'], label_name)
                 return {'status': 'filtered', 'reason': classification['reason']}
 
+            # === STAGE 2c: Gemini Lightweight Check ===
+            if config.ENABLE_GEMINI_QUICK_CHECK:
+                logger.info(f"   🤖 Stage 2c: Gemini lightweight check...")
+                
+                try:
+                    should_respond = self.gemini.should_respond_to_email(
+                        message_details['body'],
+                        message_details['subject']
+                    )
+                    
+                    if not should_respond:
+                        logger.info(f"   ⊘ Gemini quick check: NO response needed")
+                        self.gmail.add_label_to_thread(thread['id'], label_name)
+                        return {
+                            'status': 'filtered',
+                            'reason': 'gemini_quick_check_no_reply',
+                            'filter_stage': 'gemini_lightweight'
+                        }
+                    
+                    logger.info(f"   ✓ Gemini quick check: Response needed")
+                    
+                except Exception as e:
+                    logger.warning(f"   ⚠️  Gemini quick check failed: {e}")
+                    logger.info(f"   → Continuing with full pipeline (failsafe)")
+
             # === STAGE 3: Build Context ===
             logger.info(f"   📚 Stage 3: Building context...")
             conversation_messages = []

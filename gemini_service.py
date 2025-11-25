@@ -433,3 +433,79 @@ Conversazione:
 
         results['is_healthy'] = results['connection_ok'] and results['can_generate']
         return results
+    def should_respond_to_email(self, email_content: str, email_subject: str) -> bool:
+        """
+        Lightweight Gemini call to decide if email needs response
+        
+        Uses minimal tokens to decide YES/NO based on email content.
+        This is called BEFORE building full context and generating response.
+        
+        Args:
+            email_content: Email body text
+            email_subject: Email subject
+            
+        Returns:
+            True if email needs response, False otherwise
+        """
+        # Build lightweight prompt
+        prompt = f"""Analizza questa email e rispondi SOLO "SI" o "NO".
+
+Domanda: Questa email richiede una risposta dalla segreteria parrocchiale?
+
+Email:
+Oggetto: {email_subject}
+Testo: {email_content[:500]}
+
+Criteri:
+- NO se è solo ringraziamento/conferma ricevuta
+- NO se è saluto generico senza domande
+- NO se è solo acknowledgment ("ok", "perfetto", "grazie")
+- SI se contiene domande, richieste, dubbi
+- SI se richiede azione/conferma/informazioni
+
+Risposta (una sola parola):"""
+
+        try:
+            logger.info(f"🔍 Gemini quick check for: {email_subject[:40]}...")
+            
+            response = requests.post(
+                f"{self.base_url}?key={self.api_key}",
+                json={
+                    "contents": [{"parts": [{"text": prompt}]}],
+                    "generationConfig": {
+                        "temperature": 0,  # Deterministic decision
+                        "maxOutputTokens": config.GEMINI_QUICK_CHECK_MAX_TOKENS
+                    }
+                },
+                headers={"Content-Type": "application/json"},
+                timeout=config.GEMINI_QUICK_CHECK_TIMEOUT
+            )
+            
+            if response.status_code == 200:
+                result = response.json()
+                
+                if not result.get("candidates"):
+                    logger.warning("⚠️  Quick check: No candidates, defaulting to YES")
+                    return True
+                
+                answer = result["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
+                
+                # Parse response
+                should_respond = "SI" in answer or "YES" in answer
+                
+                logger.info(f"   Quick check result: {'YES' if should_respond else 'NO'} (raw: {answer})")
+                return should_respond
+                
+            else:
+                logger.warning(f"⚠️  Quick check API error: {response.status_code}, defaulting to YES")
+                return True  # Failsafe: if in doubt, respond
+                
+        except requests.exceptions.Timeout:
+            logger.warning("⏱️  Quick check timeout, defaulting to YES")
+            return True  # Failsafe: timeout → respond
+            
+        except Exception as e:
+            logger.warning(f"⚠️  Quick check failed: {e}, defaulting to YES")
+            return True  # Failsafe: error → respond
+
+        
