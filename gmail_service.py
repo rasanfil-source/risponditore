@@ -634,7 +634,7 @@ class GmailManager:
         original_html = original_html.replace('\n', '<br>')
         
         html = f'''
-        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; color: #351c75;">
+        <div style="font-family: Arial, Helvetica, sans-serif; font-size: 20px; color: #351c75;">
             {formatted_html}
             <br><br>
             <hr style="border: none; border-top: 1px solid #ccc; margin: 20px 0;">

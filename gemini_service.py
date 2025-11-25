@@ -393,49 +393,6 @@ Conversazione:
         
         return False
 
-def should_respond_to_email(self, email_content: str, email_subject: str) -> bool:
-    """
-    Lightweight Gemini call to decide if email needs response
-    """
-    prompt = f"""Analizza questa email e rispondi SOLO "SI" o "NO".
-Domanda: Questa email richiede una risposta dalla segreteria parrocchiale?
-
-Email:
-Oggetto: {email_subject}
-Testo: {email_content}
-
-Criteri:
-- NO se è solo ringraziamento/conferma ricevuta
-- NO se è saluto generico senza domande
-- SI se contiene domande, richieste, dubbi
-- SI se richiede azione/conferma
-
-Risposta (una parola):"""
-
-    try:
-        response = requests.post(
-            f"{self.base_url}?key={self.api_key}",
-            json={
-                "contents": [{"parts": [{"text": prompt}]}],
-                "generationConfig": {
-                    "temperature": 0,  # Decisione deterministica
-                    "maxOutputTokens": 5
-                }
-            },
-            timeout=10
-        )
-        
-        if response.status_code == 200:
-            result = response.json()
-            answer = result["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
-            return answer == "SI"
-    except Exception as e:
-        logger.warning(f"Should-respond check failed: {e}, defaulting to YES")
-        return True  # Failsafe: in dubbio, rispondi
-    
-    return True  # Fallback
-
-
     def test_connection(self) -> Dict:
         """Test Gemini API connection"""
         results = {

@@ -325,28 +325,6 @@ class EmailProcessor:
                 classification['should_reply'] = True
                 classification['reason'] = 'force_reply'
 
-            # === STAGE 2c: Gemini Lightweight Decision Check ===
-            # Only if NLP classifier said "should reply", double-check with Gemini
-            if classification['should_reply']:
-                logger.info(f"   🤔 Stage 2c: Gemini decision check...")
-                
-                gemini_should_respond = self.gemini.should_respond_to_email(
-                    email_content=message_details['body'],
-                    email_subject=message_details['subject'],
-                    sender_email=message_details['sender_email']
-                )
-                
-                if not gemini_should_respond:
-                    logger.info(f"   ⊘ Gemini decided: no response needed")
-                    self.gmail.add_label_to_thread(thread['id'], label_name)
-                    return {
-                        'status': 'filtered',
-                        'reason': 'gemini_no_response_needed'
-                    }
-                
-                logger.info(f"   ✓ Gemini confirmed: response needed")
-
-            # Final check after all filters
             if not classification['should_reply']:
                 logger.info(f"   ⊘ Filtered by classifier")
                 self.gmail.add_label_to_thread(thread['id'], label_name)
