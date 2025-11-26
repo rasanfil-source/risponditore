@@ -365,11 +365,11 @@ except ValueError as e:
 # GEMINI QUICK CHECK SETTINGS
 # ═══════════════════════════════════════════════════════════════
 
-# Feature flag: enable/disable Gemini lightweight check
-ENABLE_GEMINI_QUICK_CHECK = get_env_bool('ENABLE_GEMINI_QUICK_CHECK', True)
+# Enable/disable lightweight Gemini check before full response generation
+ENABLE_GEMINI_QUICK_CHECK = os.getenv('ENABLE_GEMINI_QUICK_CHECK', 'true').lower() == 'true'
 
-# Timeout for quick check (seconds)
+# Timeout for quick check API call (seconds)
 GEMINI_QUICK_CHECK_TIMEOUT = int(os.getenv('GEMINI_QUICK_CHECK_TIMEOUT', '10'))
 
-# Max output tokens for quick check (keep it low)
+# Max output tokens for quick check response (keep low)
 GEMINI_QUICK_CHECK_MAX_TOKENS = int(os.getenv('GEMINI_QUICK_CHECK_MAX_TOKENS', '5'))
