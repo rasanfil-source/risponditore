@@ -35,7 +35,6 @@ class MarkdownFormatter:
             r'^#{1,6}\s+',              # # Headers
             r'^\s*[-*]\s+',             # - lists
             r'^\s*\d+\.\s+',            # 1. numbered lists
-            r'\[.+\]\(.+\)',            # [links](url)
         ]
         
         logger.info("✓ MarkdownFormatter initialized")
@@ -139,17 +138,10 @@ class MarkdownFormatter:
         # === STEP 4: Unordered Lists (- or *) ===
         html_text = self._convert_unordered_lists(html_text)
         
-        # === STEP 5: Links [text](url) ===
-        html_text = re.sub(
-            r'\[([^\]]+)\]\(([^)]+)\)',
-            r'<a href="\2">\1</a>',
-            html_text
-        )
-
-        # === STEP 6: Ordered Lists (1. 2. 3.) ===
+        # === STEP 5: Ordered Lists (1. 2. 3.) ===
         html_text = self._convert_ordered_lists(html_text)
         
-        # === STEP 7: Line breaks (preserve paragraph structure) ===
+        # === STEP 6: Line breaks (preserve paragraph structure) ===
         # Convert double newlines to paragraph breaks
         html_text = re.sub(r'\n\n+', '</p><p>', html_text)
         

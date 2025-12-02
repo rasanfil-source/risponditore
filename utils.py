@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 import re
 import logging
 import locale
-from typing import Optional, List, Dict, Tuple, Union
+from typing import Optional, List, Dict, Tuple
 import config
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 # TIMEZONE SETUP WITH ROBUST FALLBACK
 # ============================================================================
 
-def _get_italian_timezone() -> Union['ZoneInfo', 'pytz.timezone']:
+def _get_italian_timezone():
     """
     Get Italian timezone with robust fallback
     
