@@ -75,35 +75,149 @@ class GeminiService:
 
     def _detect_email_language(self, email_content: str, email_subject: str) -> str:
         """
-        Detect email language
+        Detect email language with enhanced detection for English, Spanish, Italian
         
         ✅ CENTRALIZED: This is the ONLY place for language detection
+        ✅ IMPROVED: Better English/Spanish/Italian distinction
+        ✅ FIXED: No longer defaults to Italian when English is detected
         """
         text = (email_subject + ' ' + email_content).lower()
+        original_text = email_subject + ' ' + email_content  # Keep original for special chars
 
-        # Language indicators
-        english_keywords = ['the', 'and', 'would', 'could', 'please', 'thank you',
-                           'dear', 'we are', 'project', 'information']
-        spanish_keywords = ['el', 'la', 'de', 'que', 'por favor', 'gracias',
-                           'querido', 'somos', 'proyecto']
-        italian_keywords = ['il', 'la', 'di', 'che', 'per favore', 'grazie',
-                           'gentile', 'siamo', 'progetto']
+        # ═══════════════════════════════════════════════════════════════
+        # Spanish-specific character detection (highly distinctive)
+        # ═══════════════════════════════════════════════════════════════
+        spanish_char_score = 0
+        if '¿' in original_text or '¡' in original_text:
+            spanish_char_score = 5  # Strong indicator
+            logger.debug("   Found Spanish-specific punctuation (¿ or ¡)")
+        
+        # ñ is unique to Spanish (not used in Italian or English)
+        if 'ñ' in text or 'Ñ' in original_text:
+            spanish_char_score += 3  # Good indicator (slightly less than ¿¡ since ñ can appear in names)
+            logger.debug("   Found Spanish-specific character (ñ)")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # Enhanced language keywords (more distinctive)
+        # ═══════════════════════════════════════════════════════════════
+        
+        # English keywords - ✅ ENHANCED with weighted scoring
+        # High-value keywords (unique to English, score 2 each)
+        english_unique_keywords = [
+            'the ', ' the', 'would', 'could', 'should', 'might',
+            'we are', 'you are', 'they are', 'i am', "i'm", "we're", "you're",
+            'please', 'thank you', 'thanks', 'dear sir', 'dear madam',
+            'kind regards', 'best regards', 'sincerely', 'yours truly',
+            'looking forward', 'i would like', 'we would like',
+            'let me know', 'get back to', 'reach out',
+            'in order to', 'as well as', 'such as',
+            'however', 'therefore', 'furthermore', 'moreover',
+            'regarding', 'concerning', 'attached', 'enclosed',
+            'schedule', 'meeting', 'appointment', 'available',
+        ]
+        
+        # Standard English keywords (score 1 each)
+        english_standard_keywords = [
+            # Articles and conjunctions (very distinctive)
+            ' and ', ' or ', ' but ', ' an ', ' a ',
+            # Modal verbs and auxiliaries
+            'will', 'can', 'may', 'shall', 'must',
+            'have', 'has', 'had', 'do', 'does', 'did',
+            # Common verbs
+            'send', 'get', 'want', 'need', 'make', 'give', 'take',
+            'know', 'think', 'see', 'find', 'help', 'work',
+            # Question words
+            'what', 'when', 'where', 'how', 'why', 'which', 'who',
+            # Prepositions
+            ' on ', ' of ', ' to ', ' from ', ' for ', ' with ', ' at ', ' by ', ' in ',
+            # Business/marketing terms
+            'website', 'business', 'offer', 'price', 'service', 'services',
+            'interested', 'project', 'information', 'plan', 'list',
+            'email', 'contact', 'phone', 'address',
+            # Common adjectives/adverbs
+            'good', 'best', 'first', 'your', 'our', 'this', 'that',
+            'because', 'so', 'if', 'are', 'is', 'am',
+            # More common English words
+            'also', 'just', 'about', 'very', 'much', 'more', 'some', 'any',
+            'well', 'only', 'even', 'still', 'already', 'again',
+            'here', 'there', 'now', 'then', 'today', 'tomorrow', 'yesterday',
+        ]
+        
+        # Spanish keywords (more distinctive, avoiding overlap with Italian)
+        spanish_keywords = [
+            # Common verbs and conjugations
+            'he ido', 'había', 'hay', 'ido', 'sido', 'tengo', 'tiene', 
+            'hacer', 'haber', 'poder', 'estar', 'estoy', 'están',
+            # Questions and common words
+            'por qué', 'porque', 'cuándo', 'cómo', 'dónde', 'qué tal',
+            # Greetings and phrases
+            'por favor', 'muchas gracias', 'buenos días', 'buenas tardes',
+            'querido', 'estimado', 'saludos',
+            # Pronouns and particles
+            ' no ', ' sí ', ' un ', ' una ', ' unos ', ' unas ',
+            ' del ', ' al ', ' con el ', ' en el ', ' es ', ' son ',
+            # Common Spanish words
+            'somos', 'proyecto', 'información', 'quiero', 'quisiera'
+        ]
+        
+        # Italian keywords (more distinctive, avoiding overlap with Spanish)
+        italian_keywords = [
+            # Common verbs and conjugations
+            'sono', 'siamo', 'stato', 'stata', 'ho', 'hai', 'abbiamo',
+            'fare', 'avere', 'essere', 'potere', 'volere',
+            # Questions and common words  
+            'perché', 'perchè', 'quando', 'come', 'dove', 'cosa',
+            # Greetings and phrases
+            'per favore', 'per piacere', 'molte grazie', 'buongiorno',
+            'buonasera', 'gentile', 'egregio', 'cordiali saluti',
+            # Pronouns and particles
+            ' non ', ' il ', ' la ', ' di ', ' da ', ' con ',
+            ' nel ', ' della ', ' degli ', ' delle ',
+            # Common Italian words
+            'progetto', 'informazione', 'informazioni', 'vorrei', 'gradirei'
+        ]
 
-        # Count matches
+        # ═══════════════════════════════════════════════════════════════
+        # Count keyword matches with weighted scoring for English
+        # ═══════════════════════════════════════════════════════════════
+        english_score = (
+            sum(2 for kw in english_unique_keywords if kw in text) +
+            sum(1 for kw in english_standard_keywords if kw in text)
+        )
+        
         scores = {
-            'en': sum(1 for kw in english_keywords if f' {kw} ' in f' {text} '),
-            'es': sum(1 for kw in spanish_keywords if f' {kw} ' in f' {text} '),
-            'it': sum(1 for kw in italian_keywords if f' {kw} ' in f' {text} ')
+            'en': english_score,
+            'es': sum(1 for kw in spanish_keywords if kw in text) + spanish_char_score,
+            'it': sum(1 for kw in italian_keywords if kw in text)
         }
 
-        detected_lang = max(scores, key=scores.get)
+        # Log scoring details
+        logger.info(f"   Language scores: EN={scores['en']}, ES={scores['es']}, IT={scores['it']}")
         
-        # Low confidence = default to Italian
-        if scores[detected_lang] < 2:
-            logger.debug("Low confidence, defaulting to Italian")
+        detected_lang = max(scores, key=scores.get)
+        max_score = scores[detected_lang]
+        
+        # ═══════════════════════════════════════════════════════════════
+        # Confidence threshold logic - ✅ FIXED: Don't default to Italian
+        # when English or Spanish indicators are present
+        # ═══════════════════════════════════════════════════════════════
+        
+        # If Spanish has special characters, prefer Spanish
+        if spanish_char_score > 0 and scores['es'] >= scores['it']:
+            logger.info(f"   ✓ Detected: SPANISH (score: {scores['es']}, includes special chars)")
+            return 'es'
+        
+        # If English score is meaningful (>= 2), AND English is the highest or tied for highest
+        if scores['en'] >= 2 and scores['en'] >= scores['it'] and scores['en'] >= scores['es']:
+            logger.info(f"   ✓ Detected: ENGLISH (score: {scores['en']})")
+            return 'en'
+        
+        # If all scores are very low, default to Italian (parish is Italian)
+        if max_score < 2:
+            logger.debug("   Low confidence across all languages, defaulting to Italian")
             return 'it'
 
-        logger.info(f"Detected: {detected_lang.upper()} (score: {scores[detected_lang]})")
+        logger.info(f"   ✓ Detected: {detected_lang.upper()} (score: {max_score})")
         return detected_lang
 
     def _get_adaptive_greeting(self, now: datetime, sender_name: str, language: str = 'it') -> tuple:

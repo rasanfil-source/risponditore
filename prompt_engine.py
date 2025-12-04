@@ -524,18 +524,52 @@ Segreteria Parrocchia Sant'Eugenio
 
 
 class LanguageInstructionTemplate(PromptTemplate):
-    """Language-specific instructions"""
+    """Language-specific instructions - ENHANCED for better language enforcement"""
     
     INSTRUCTIONS = {
         'it': "Rispondi in italiano, la lingua dell'email ricevuta.",
-        'en': (
-            "🚨 CRITICAL: This email is in ENGLISH. "
-            "Respond ENTIRELY in English. NO Italian words."
-        ),
-        'es': (
-            "🚨 CRÍTICO: Este correo está en ESPAÑOL. "
-            "Responde COMPLETAMENTE en español. SIN palabras italianas."
-        )
+        'en': """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT - ENGLISH 🚨🚨🚨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+The incoming email is written in ENGLISH.
+
+YOU MUST:
+✅ Write your ENTIRE response in ENGLISH
+✅ Use English greetings: "Good morning," "Good afternoon," "Good evening,"
+✅ Use English closings: "Kind regards," "Best regards,"
+✅ Translate any Italian information into English
+
+YOU MUST NOT:
+❌ Use ANY Italian words (no "Buongiorno", "Cordiali saluti", etc.)
+❌ Mix languages
+❌ Write the greeting or closing in Italian
+
+This is MANDATORY. The sender speaks English and will not understand Italian.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+""",
+        'es': """
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+🚨🚨🚨 REQUISITO CRÍTICO DE IDIOMA - ESPAÑOL 🚨🚨🚨
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+El correo recibido está escrito en ESPAÑOL.
+
+DEBES:
+✅ Escribir TODA tu respuesta en ESPAÑOL
+✅ Usar saludos españoles: "Buenos días," "Buenas tardes,"
+✅ Usar despedidas españolas: "Cordiales saludos," "Un saludo,"
+✅ Traducir cualquier información italiana al español
+
+NO DEBES:
+❌ Usar NINGUNA palabra italiana (no "Buongiorno", "Cordiali saluti", etc.)
+❌ Mezclar idiomas
+❌ Escribir el saludo o la despedida en italiano
+
+Esto es OBLIGATORIO. El remitente habla español y no entenderá italiano.
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
     }
     
     def render(self, context: PromptContext) -> str:
@@ -634,26 +668,60 @@ class NoReplyRulesTemplate(PromptTemplate):
 
 
 class ResponseGuidelinesTemplate(PromptTemplate):
-    """Core response guidelines"""
+    """Core response guidelines - ENHANCED with language-specific instructions"""
     
     def render(self, context: PromptContext) -> str:
-        return f"""**LINEE GUIDA RISPOSTA:**
-
-1. **Formato risposta:**
+        # Language-specific format instructions
+        if context.detected_language == 'en':
+            format_section = f"""1. **Response Format (ENGLISH REQUIRED):**
+   {context.salutation}
+   [Concise and relevant body - ✅ USE FORMATTING IF APPROPRIATE]
+   {context.closing}
+   Parish Secretariat of Sant'Eugenio"""
+            content_section = """2. **Content:**
+   • Answer ONLY what is asked
+   • Use ONLY information from the knowledge base
+   • ✅ Format elegantly if 3+ elements/times
+   • Follow-up (Re:): be more direct and concise"""
+            language_reminder = """4. **LANGUAGE: ⚠️ RESPOND IN ENGLISH ONLY**
+   • NO Italian words allowed
+   • Use English for everything: greeting, body, closing"""
+        elif context.detected_language == 'es':
+            format_section = f"""1. **Formato de respuesta (ESPAÑOL REQUERIDO):**
+   {context.salutation}
+   [Cuerpo conciso y pertinente - ✅ USA FORMATO SI ES APROPIADO]
+   {context.closing}
+   Secretaría Parroquia Sant'Eugenio"""
+            content_section = """2. **Contenido:**
+   • Responde SOLO lo que se pregunta
+   • Usa SOLO información de la base de conocimientos
+   • ✅ Formatea elegantemente si 3+ elementos/horarios
+   • Seguimiento (Re:): sé más directo y conciso"""
+            language_reminder = """4. **IDIOMA: ⚠️ RESPONDE SOLO EN ESPAÑOL**
+   • NO se permiten palabras italianas
+   • Usa español para todo: saludo, cuerpo, despedida"""
+        else:
+            format_section = f"""1. **Formato risposta:**
    {context.salutation}
    [Corpo conciso e pertinente - ✅ USA FORMATTAZIONE SE APPROPRIATO]
    {context.closing}
-   Segreteria Parrocchia Sant'Eugenio
-
-2. **Contenuto:**
+   Segreteria Parrocchia Sant'Eugenio"""
+            content_section = """2. **Contenuto:**
    • Rispondi SOLO a ciò che è chiesto
    • Usa SOLO info dalla knowledge base
    • ✅ Formatta elegantemente se 3+ elementi/orari
-   • Follow-up (Re:): sii più diretto e conciso
+   • Follow-up (Re:): sii più diretto e conciso"""
+            language_reminder = "4. **Lingua:** Rispondi in italiano"
+        
+        return f"""**LINEE GUIDA RISPOSTA:**
+
+{format_section}
+
+{content_section}
 
 3. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
 
-4. **Lingua:** Rispondi in {context.detected_language.upper()}"""
+{language_reminder}"""
 
 
 class SpecialCasesTemplate(PromptTemplate):

@@ -513,7 +513,9 @@ class GmailManager:
             message = MIMEMultipart('alternative')
             
             # Set headers
-            message['To'] = original_message['sender']  # ✅ This uses Reply-To when present!
+            # 🔧 FIX: Use sender_email (just email address) instead of sender (full formatted string)
+            # Gmail API requires plain email address, not "Name <email>" format
+            message['To'] = original_message['sender_email']  # ✅ This uses Reply-To when present!
             message['Subject'] = f"Re: {original_message['subject']}"
             message['In-Reply-To'] = original_message['message_id']
             message['References'] = original_message['message_id']

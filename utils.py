@@ -3,6 +3,8 @@ Utility functions for date calculations, filters, and text processing
 Enhanced with intelligent temporal context generation and robust error handling
 ✅ FIXED: Support for multiple date formats (DD/MM/YYYY, DD-MM-YYYY, etc.)
 ✅ FIXED: Better date validation to prevent invalid dates
+✅ NEW: Special holiday Mass timing rules (only 7:00 PM on specific holidays)
+✅ NEW: Easter date calculation test for 2026-2040
 """
 
 from datetime import datetime, timedelta
@@ -311,6 +313,152 @@ def get_holy_family_sunday(year: int) -> Optional[datetime.date]:
 
 
 # ============================================================================
+# ✅ NEW: HOLIDAY MASS TIMING RULE
+# ============================================================================
+
+def is_special_holiday_mass_time(date_obj: datetime = None) -> bool:
+    """
+    Check if date requires special Mass timing (only 7:00 PM Mass)
+    
+    Special holidays when Mass is ONLY at 7:00 PM:
+    - Easter Monday
+    - St. Stephen's Day (Dec 26)
+    - May 1st (Labor Day)
+    - April 25th (Liberation Day)
+    - June 2nd (Republic Day)
+    
+    Exception: If these days fall on a Sunday, use normal Sunday schedule
+    
+    Args:
+        date_obj: Date to check (default: now)
+        
+    Returns:
+        True if only 7:00 PM Mass applies
+    """
+    if date_obj is None:
+        date_obj = datetime.now(ITALIAN_TZ)
+    
+    month = date_obj.month
+    day = date_obj.day
+    year = date_obj.year
+    
+    # Check if it's Sunday - exception to the rule
+    if date_obj.weekday() == 6:  # Sunday
+        return False
+    
+    # Check specific holidays
+    special_holidays = [
+        (4, 25),  # April 25 - Liberation Day
+        (5, 1),   # May 1 - Labor Day
+        (6, 2),   # June 2 - Republic Day
+        (12, 26), # Dec 26 - St. Stephen's Day
+    ]
+    
+    # Check for April 25, May 1, June 2, Dec 26
+    if (month, day) in special_holidays:
+        return True
+    
+    # Check for Easter Monday (dynamic date)
+    try:
+        easter = get_western_easter_date(year)
+        easter_monday = easter + timedelta(days=1)
+        easter_monday_date = easter_monday.date()
+        
+        if date_obj.date() == easter_monday_date:
+            return True
+    except Exception as e:
+        logger.warning(f"⚠️ Error calculating Easter Monday: {e}")
+    
+    return False
+
+
+def get_mass_timing_context(date_obj: datetime = None) -> str:
+    """
+    Generate context for Mass timing rules
+    
+    Args:
+        date_obj: Date to check (default: now)
+        
+    Returns:
+        Context string for AI about Mass timing rules
+    """
+    if date_obj is None:
+        date_obj = datetime.now(ITALIAN_TZ)
+    
+    date_str = date_obj.strftime("%d %B %Y")
+    day_name = date_obj.strftime("%A")
+    
+    if is_special_holiday_mass_time(date_obj):
+        return f"""
+⚠️ IMPORTANTE - ORARI MESSA SPECIALI:
+Oggi è {date_str} ({day_name}), una festività con orari speciali:
+• Le Messe si celebrano SOLO alle ore 19:00
+• Gli orari regolari delle Messe non si applicano oggi
+
+Questa regola sovrascrive qualsiasi orario di Messa indicato nella knowledge base.
+"""
+    
+    return ""
+
+
+# ============================================================================
+# ✅ NEW: EASTER DATE TESTING FOR 2026-2040
+# ============================================================================
+
+def test_easter_dates_2026_2040():
+    """
+    Test Easter date calculation for years 2026-2040
+    Compares with provided expected dates
+    """
+    print("\n" + "=" * 80)
+    print("TEST EASTER DATES 2026-2040")
+    print("=" * 80)
+    
+    expected_dates = {
+        2026: "April 5",
+        2027: "March 28",
+        2028: "April 16",
+        2029: "April 1",
+        2030: "April 21",
+        2031: "April 13",
+        2032: "March 28",
+        2033: "April 17",
+        2034: "April 9",
+        2035: "March 25",
+        2036: "April 13",
+        2037: "April 5",
+        2038: "April 25",
+        2039: "April 10",
+        2040: "April 1"
+    }
+    
+    all_correct = True
+    
+    for year, expected in expected_dates.items():
+        try:
+            easter = get_western_easter_date(year)
+            calculated = easter.strftime("%B %d").replace(" 0", " ")  # Remove leading zero
+            status = "✅" if calculated == expected else "❌"
+            
+            if calculated != expected:
+                all_correct = False
+                
+            print(f"{year}: {calculated} {status} (expected: {expected})")
+        except Exception as e:
+            print(f"{year}: ERROR - {e} ❌")
+            all_correct = False
+    
+    print("\n" + "=" * 80)
+    if all_correct:
+        print("✅ ALL EASTER DATES CORRECT!")
+    else:
+        print("❌ SOME DATES DO NOT MATCH!")
+    print("=" * 80)
+    
+    return all_correct
+
+
+# ============================================================================
 # ✅ FIXED: DATE EXTRACTION WITH MULTIPLE FORMATS
 # ============================================================================
 
@@ -530,9 +678,17 @@ def generate_temporal_awareness_context(now: datetime = None) -> str:
    Tutti gli eventi vengono valutati rispetto a questa data.
    NON assumere mai che un evento sia nel futuro solo perché è menzionato nella KB.
    CONTROLLA SEMPRE la data rispetto a OGGI.
-
-╚══════════════════════════════════════════════════════════════════════════════╝
 """
+
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NEW: MASS TIMING RULES FOR SPECIAL HOLIDAYS
+    # ═══════════════════════════════════════════════════════════════
+    
+    mass_timing_context = get_mass_timing_context(now)
+    if mass_timing_context:
+        context += "\n" + mass_timing_context + "\n"
+    
+    context += "╚══════════════════════════════════════════════════════════════════════════════╝"
     
     return context
 
@@ -639,10 +795,10 @@ def should_ignore_email(subject: str, content: str, sender_email: str,
         r'clicca\s+(?:qui|sul\s+link)\s+per\s+iscri',
         r'confermare\s+la\s+(?:tua|vostra)\s+presenza',
         
-        # Documenti allegati (manifesti, locandine)
+        # Documenti allegati (manifestos, posters)
         r'(?:alleghiamo|trovate\s+allegat[oa])\s+(?:la\s+)?(?:locandina|manifesto|programma)',
         
-        # Programma evento
+        # Event program
         r'in\s+programma\s+(?:il|sabato|domenica|lunedì)',
         r'ore\s+\d{1,2}[.:]\d{2}\s+(?:presso|al|alla)',
     ]
@@ -777,7 +933,7 @@ def is_broadcast_email(content: str, sender_email: str) -> bool:
     """
     text = content.lower()
     
-    # Saluti generici (non personali)
+    # Generic greetings (not personal)
     generic_greetings = [
         r'carissim[ie]',
         r'car[ie]\s+(?:amici|fratelli|sorelle)',
@@ -791,14 +947,14 @@ def is_broadcast_email(content: str, sender_email: str) -> bool:
         for pattern in generic_greetings
     )
     
-    # Footer organizzativo
+    # Organizational footer
     has_org_footer = bool(re.search(
         r'(?:presidente|segretari[ao]|assistente)\s+(?:diocesan[oa]|ecclesiastic[oa])',
         text,
         re.IGNORECASE
     ))
     
-    # Link esterni
+    # External links
     has_external_link = bool(re.search(r'https?://(?!parrocchiasanteugenio)', text))
     
     # Multiple indicators = broadcast
@@ -872,11 +1028,6 @@ def test_enhanced_filters():
     print()
 
 
-if __name__ == "__main__":
-    test_enhanced_filters()
-
-
-
 def apply_replacements(text: str, replacements: Dict[str, str]) -> str:
     """
     Apply text replacements
@@ -942,7 +1093,37 @@ def extract_thread_messages(thread: Dict) -> List[Dict]:
 if __name__ == "__main__":
     """Test utilities when run directly"""
     
+    # Run enhanced filter tests
+    test_enhanced_filters()
+    
+    # Run Easter date calculation test
+    test_easter_dates_2026_2040()
+    
+    print("\n" + "=" * 80)
+    print("TESTING SPECIAL HOLIDAY MASS TIMING")
     print("=" * 80)
+    
+    # Test dates for 2025
+    test_dates = [
+        datetime(2025, 4, 25),  # April 25 - Liberation Day (Friday) - SHOULD BE SPECIAL
+        datetime(2025, 5, 1),   # May 1 - Labor Day (Thursday) - SHOULD BE SPECIAL
+        datetime(2025, 6, 2),   # June 2 - Republic Day (Monday) - SHOULD BE SPECIAL
+        datetime(2025, 12, 26), # Dec 26 - St. Stephen's Day (Friday) - SHOULD BE SPECIAL
+        # Test Easter Monday for 2025 (calculated)
+        datetime(2025, 4, 21),  # Easter Monday 2025 (calculated) - SHOULD BE SPECIAL
+        # Test Sunday exception
+        datetime(2025, 4, 20),  # April 20, 2025 - Easter Sunday (should NOT trigger special rule)
+        datetime(2025, 5, 3),   # Regular Saturday (should NOT trigger)
+        datetime(2025, 12, 25), # Christmas (should NOT trigger - not in the list)
+    ]
+    
+    for date in test_dates:
+        is_special = is_special_holiday_mass_time(date)
+        day_name = date.strftime('%A')
+        status = "🔴 7:00 PM ONLY" if is_special else "🟢 Normal schedule"
+        print(f"{date.strftime('%Y-%m-%d')} ({day_name}): {status}")
+    
+    print("\n" + "=" * 80)
     print("TESTING DYNAMIC SUMMER PERIOD CALCULATION")
     print("=" * 80)
     
@@ -1003,3 +1184,11 @@ if __name__ == "__main__":
         print(f"Special greeting today: {special_greeting}")
     else:
         print("No special greeting today")
+    
+    # Test mass timing context for today
+    mass_context = get_mass_timing_context()
+    if mass_context:
+        print("\n" + "=" * 80)
+        print("MASS TIMING CONTEXT FOR TODAY:")
+        print("=" * 80)
+        print(mass_context.strip())
