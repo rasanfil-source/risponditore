@@ -107,7 +107,7 @@ class ResponseValidator:
     # Class-level constants
     MIN_VALID_SCORE = 0.6
     STRICT_MODE_SCORE = 0.8
-    MIN_LENGTH_CHARS = 50
+    MIN_LENGTH_CHARS = 25
     OPTIMAL_MIN_LENGTH = 100
     WARNING_MAX_LENGTH = 3000
     
