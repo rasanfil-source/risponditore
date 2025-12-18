@@ -1,10 +1,12 @@
 """
-Response Validator Module - OPTIMIZED VERSION
+Response Validator Module - HARMONIZED VERSION
 Multi-level validation system for AI-generated email responses
-Removes redundant checks (greetings/closings) and focuses on critical validations
+✅ UPDATED: Removed markdown link checks (now using plain "text: URL" format)
+✅ UPDATED: Added check for capital after comma
+✅ OPTIMIZED: Focuses on critical validations only
 
 Author: Parish Secretary AI System
-Version: 2.0 (Optimized)
+Version: 2.1 (Harmonized)
 """
 
 import logging
@@ -85,7 +87,7 @@ class ValidationResult:
 
 class ResponseValidator:
     """
-    Optimized response validator - focuses on critical checks only
+    Harmonized response validator - aligned with new link format
     
     WHAT WE CHECK (Critical):
     ✅ Length (too short/long = bad UX)
@@ -94,13 +96,12 @@ class ResponseValidator:
     ✅ Placeholders (incomplete response)
     ✅ Required signature (brand identity)
     ✅ Hallucinated data (emails, phones, times not in KB)
+    ✅ Capital after comma (grammar error)
     
-    WHAT WE DON'T CHECK (Redundant):
-    ❌ Greetings (forced in prompt)
-    ❌ Closings (forced in prompt)
-    ❌ Excessive repetition (Gemini rarely does this)
+    WHAT WE DON'T CHECK ANYMORE:
+    ❌ Markdown link formatting (now using plain "text: URL" format)
     
-    This removes ~40% of checks while maintaining effectiveness.
+    This version is aligned with the new prompt engine guidelines.
     """
     
     # Class-level constants
@@ -117,7 +118,7 @@ class ResponseValidator:
         Args:
             strict_mode: If True, use higher validation threshold (0.8 vs 0.6)
         """
-        logger.info("🔍 Initializing Optimized ResponseValidator...")
+        logger.info("🔍 Initializing Harmonized ResponseValidator...")
         
         self.strict_mode = strict_mode
         self.min_valid_score = self.STRICT_MODE_SCORE if strict_mode else self.MIN_VALID_SCORE
@@ -147,7 +148,7 @@ class ResponseValidator:
         
         # Placeholders
         self.placeholders = [
-            '[', ']', 'XXX', 'TODO', '<insert>', 'placeholder', 'tbd', 'TBD'
+            'XXX', 'TODO', '<insert>', 'placeholder', 'tbd', 'TBD', '...'
         ]
         
         # Required signature pattern (case-insensitive)
@@ -156,7 +157,7 @@ class ResponseValidator:
             re.IGNORECASE
         )
         
-        logger.info(f"✓ Optimized ResponseValidator initialized (strict_mode={strict_mode})")
+        logger.info(f"✓ Harmonized ResponseValidator initialized (strict_mode={strict_mode})")
         logger.info(f"   Min valid score: {self.min_valid_score}")
     
     def validate_response(
@@ -204,6 +205,7 @@ class ResponseValidator:
         # === CHECK 3: Signature (CRITICAL for brand identity) ===
         sig_result = self._check_signature(response)
         errors.extend(sig_result['errors'])
+        warnings.extend(sig_result['warnings'])
         details['signature'] = sig_result
         score *= sig_result['score']
         
@@ -219,6 +221,13 @@ class ResponseValidator:
         warnings.extend(halluc_result['warnings'])
         details['hallucinations'] = halluc_result
         score *= halluc_result['score']
+        
+        # === CHECK 6: Capital After Comma (Grammar - CRITICAL) ===
+        cap_result = self._check_capital_after_comma(response)
+        errors.extend(cap_result['errors'])
+        warnings.extend(cap_result['warnings'])
+        details['capital_after_comma'] = cap_result
+        score *= cap_result['score']
         
         # === DETERMINE VALIDITY ===
         is_valid = len(errors) == 0 and score >= self.min_valid_score
@@ -344,7 +353,7 @@ class ResponseValidator:
         score = 1.0
         
         if not self.signature_pattern.search(response.lower()):
-            warnings.append("Missing signature (non-blocking)")  # ← WARNING
+            warnings.append("Missing signature 'Segreteria Parrocchia Sant'Eugenio'")
             score = 0.95
         
         return {
@@ -365,7 +374,6 @@ class ResponseValidator:
         response_lower = response.lower()
         
         # Check forbidden phrases (uncertainty indicators)
-        # Check forbidden phrases (uncertainty indicators)
         found_forbidden = [
             phrase for phrase in self.forbidden_phrases if phrase in response_lower
         ]
@@ -374,16 +382,13 @@ class ResponseValidator:
             score *= 0.50
         
         # Check placeholders (incomplete response)
-        # ✅ FIXED: Ignora parentesi quadre isolate che potrebbero essere parte di testo normale
+        # ✅ IMPROVED: Smarter placeholder detection
         found_placeholders = []
         for p in self.placeholders:
-            if p == '[':
-                # Controlla solo pattern tipo [...] o [XXX] o [insert]
-                if re.search(r'\[\s*(\.{3,}|[A-Z_]{3,}|insert)\s*\]', response_lower):
-                    found_placeholders.append(p)
-            elif p == ']':
-                # Check for standalone ']' which might indicate an unclosed placeholder
-                if ']' in response_lower and '[' not in response_lower:
+            # For '...', check if it's used as placeholder (not ellipsis in text)
+            if p == '...':
+                # Look for patterns like [...] or "..." at end of sentences
+                if re.search(r'\[\.\.\.\]|\.\.\.\s*$', response):
                     found_placeholders.append(p)
             elif p.lower() in response_lower:
                 found_placeholders.append(p)
@@ -396,13 +401,6 @@ class ResponseValidator:
         if 'NO_REPLY' in response and len(response.strip()) > 20:
             errors.append("Contains 'NO_REPLY' instruction (should have been filtered)")
             score = 0.0
-        
-        return {
-            'score': score,
-            'errors': errors,
-            'found_forbidden': found_forbidden,
-            'found_placeholders': found_placeholders
-        }
         
         return {
             'score': score,
@@ -462,6 +460,81 @@ class ResponseValidator:
             'hallucinations': hallucinations
         }
     
+    def _check_capital_after_comma(self, response: str) -> Dict:
+        """
+        Check for capital letters immediately following a comma (grammar error)
+        
+        Critical grammar error in Italian:
+        ❌ WRONG: "Buonasera, Siamo lieti..."
+        ✅ RIGHT: "Buonasera, siamo lieti..."
+        
+        The comma doesn't start a new sentence, so lowercase is required.
+        """
+        errors = []
+        warnings = []
+        score = 1.0
+        
+        # List of common words that should NOT be capitalized after a comma
+        # These are institutional/common words, not proper nouns
+        forbidden_caps = [
+            # Verbs (most common violations)
+            'Siamo', 'Restiamo', 'Sono', 'È', 'E\'', 'Era', 'Sarà', 
+            'Ho', 'Hai', 'Ha', 'Abbiamo', 'Avete', 'Hanno', 
+            'Vorrei', 'Vorremmo', 'Volevamo', 'Desideriamo', 'Informiamo',
+            
+            # Articles
+            'Il', 'Lo', 'La', 'I', 'Gli', 'Le', 
+            'Un', 'Uno', 'Una', 'Un\'',
+            
+            # Prepositions
+            'Per', 'Con', 'In', 'Su', 'Tra', 'Fra', 'Da', 'Di', 'A',
+            
+            # Conjunctions and particles
+            'Ma', 'Se', 'Che', 'Non', 'Sì', 'No',
+            
+            # Pronouns
+            'Vi', 'Ti', 'Mi', 'Ci', 'Si', 'Lo', 'La', 'Li', 'Le',
+            
+            # Other common words
+            'Ecco', 'Gentile', 'Caro', 'Cara', 'Spettabile',
+            
+            # English equivalents (for multilingual support)
+            'We', 'Are', 'Were', 'Have', 'Had', 'Will', 'Would',
+            'The', 'A', 'An', 'For', 'With', 'In', 'On', 'At',
+            'But', 'If', 'That', 'Not', 'Yes', 'No',
+            
+            # Spanish equivalents
+            'Estamos', 'Somos', 'Estaremos', 'Seremos',
+            'El', 'La', 'Los', 'Las', 'Un', 'Una',
+            'Por', 'Con', 'En', 'De', 'A',
+            'Pero', 'Si', 'Que', 'No', 'Sí'
+        ]
+        
+        # Regex to find ", Word" - comma followed by space(s) and capital letter
+        pattern = r',\s+([A-ZÀÈÉÌÒÙ][a-zàèéìòù]*)'
+        matches = re.finditer(pattern, response)
+        
+        violations = []
+        for match in matches:
+            word = match.group(1)
+            # Check if it's in our forbidden list
+            if word in forbidden_caps:
+                violations.append(word)
+                errors.append(
+                    f"Grammar error: Capital '{word}' after comma. "
+                    f"Should be lowercase: '{word.lower()}'"
+                )
+        
+        if violations:
+            score *= max(0.5, 1.0 - (len(violations) * 0.15))  # Penalty per violation
+        
+        return {
+            'score': score,
+            'errors': errors,
+            'warnings': warnings,
+            'violations': violations
+        }
+    
     # ========================================================================
     # UTILITY METHODS
     # ========================================================================
@@ -475,5 +548,6 @@ class ResponseValidator:
             'max_length_warning': self.WARNING_MAX_LENGTH,
             'forbidden_phrases_count': len(self.forbidden_phrases),
             'supported_languages': list(self.language_markers.keys()),
-            'placeholders_count': len(self.placeholders)
+            'placeholders_count': len(self.placeholders),
+            'version': '2.1 (Harmonized with plain URL format)'
         }

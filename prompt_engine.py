@@ -1,14 +1,15 @@
-# prompt_engine.py - ENHANCED VERSION with Formatting & Icons
+# prompt_engine.py - ENHANCED VERSION with STRICT RULE ENFORCEMENT
 """
 Modular prompt engineering system with human-like response templates
-✅ INTEGRATED: response_templates for natural, warm responses
-✅ NEW: Elegant formatting with icons for structured information
+✅ FIXED: Reinforced rules for capitalization and link formatting
+✅ NEW: Critical errors section at the beginning and end of prompt
 """
 
 import logging
 from typing import Dict, Optional
 from datetime import datetime
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from response_templates import TemplateSelector
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +29,7 @@ class PromptContext:
     now: datetime
     salutation: str
     closing: str
+    sub_intents: Dict = field(default_factory=dict)
 
 
 class PromptTemplate:
@@ -35,6 +37,58 @@ class PromptTemplate:
     
     def render(self, context: PromptContext) -> str:
         raise NotImplementedError
+
+
+class CriticalErrorsTemplate(PromptTemplate):
+    """🚨 NEW: Critical errors to avoid - shown FIRST and LAST"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """
+═══════════════════════════════════════════════════════════════════════════
+🚨🚨🚨 ERRORI CRITICI DA EVITARE ASSOLUTAMENTE 🚨🚨🚨
+═══════════════════════════════════════════════════════════════════════════
+
+❌ ERRORE #1: MAIUSCOLA DOPO LA VIRGOLA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SBAGLIATO ❌: "Buonasera Federica, Siamo lieti di..."
+SBAGLIATO ❌: "Buongiorno, Restiamo a disposizione..."
+SBAGLIATO ❌: "Grazie, Vi contatteremo..."
+
+GIUSTO ✅: "Buonasera Federica, siamo lieti di..."
+GIUSTO ✅: "Buongiorno, restiamo a disposizione..."
+GIUSTO ✅: "Grazie, vi contatteremo..."
+
+📌 REGOLA: Dopo una virgola, la frase CONTINUA con la minuscola.
+   La virgola NON è un punto. Non inizia una nuova frase.
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❌ ERRORE #2: LINK CON URL RIPETUTO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+SBAGLIATO ❌: [tinyurl.com/santiago26](https://tinyurl.com/santiago26)
+SBAGLIATO ❌: [https://tinyurl.com/santiago26](https://tinyurl.com/santiago26)
+SBAGLIATO ❌: [tinyurl.com/cammino26](tinyurl.com/cammino26)
+
+GIUSTO ✅: Iscrizione online: https://tinyurl.com/santiago26
+GIUSTO ✅: Programma completo:https://tinyurl.com/cammino26
+GIUSTO ✅: Modulo iscrizione: https://tinyurl.com/prematri
+
+📌 REGOLA: 
+            MAI ripetere l'URL sia dentro [] che dentro ()
+
+ESEMPI CORRETTI PER RIFERIMENTO:
+• Iscrizione: https://tinyurl.com/santiago26 
+• Clicca qui: https://example.com
+• Maggiori info: https://link.it
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⚠️ QUESTI ERRORI SONO INACCETTABILI. CONTROLLA SEMPRE PRIMA DI RISPONDERE.
+
+═══════════════════════════════════════════════════════════════════════════
+"""
 
 
 class SystemRoleTemplate(PromptTemplate):
@@ -58,13 +112,13 @@ NON sei un chatbot freddo - sei una persona reale della segreteria che vuole aiu
 
 
 class FormattingGuidelinesTemplate(PromptTemplate):
-    """✅ NEW: Guidelines for elegant formatting with icons"""
+    """Formatting guidelines with icons - ENHANCED with link examples"""
     
     def render(self, context: PromptContext) -> str:
         return """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 ✨ FORMATTAZIONE ELEGANTE E USO ICONE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 🎨 QUANDO USARE FORMATTAZIONE MARKDOWN:
 
@@ -73,7 +127,7 @@ class FormattingGuidelinesTemplate(PromptTemplate):
 3. **Informazioni importanti** → Grassetto per evidenziare
 4. **Sezioni distinte** → Intestazioni H3 (###) con icona
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 📋 ICONE CONSIGLIATE PER CATEGORIA:
 
@@ -109,84 +163,26 @@ class FormattingGuidelinesTemplate(PromptTemplate):
 **AZIONI E PASSI:**
 • 1️⃣ 2️⃣ 3️⃣ Numerazione passi
 • ▶️ Prossimo passo
-• ✓ Completato
+• ✔ Completato
 • 💡 Suggerimento
 • ℹ️ Informazione
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
-📐 ESEMPI DI FORMATTAZIONE CORRETTA:
+🚨 REGOLE CRITICHE (DA SEGUIRE SEMPRE):
 
-**ESEMPIO 1 - Orari Messe (Tabella Elegante):**
+1. **MAIUSCOLA DOPO LA VIRGOLA - VIETATA!**
+   ✅ GIUSTO: "Buonasera Federica, siamo lieti di..."
+   ❌ SBAGLIATO: "Buonasera Federica, Siamo lieti di..."
+   → Dopo una virgola, la frase CONTINUA in minuscolo!
 
-```markdown
-Ecco gli **orari delle Sante Messe**:
+2. **FORMATO LINK CORRETTO**
+   ✅ GIUSTO: Iscrizione online: https://tinyurl.com/santiago26
+   ✅ GIUSTO: Programma completo: https://tinyurl.com/cammino26
+   ❌ SBAGLIATO: [tinyurl.com/santiago26](https://tinyurl.com/santiago26)
+   ❌ SBAGLIATO: [https://tinyurl.com/santiago26](https://tinyurl.com/santiago26)
 
-### 🕐 Orari Messe
-
-**Giorni Feriali:**
-• Mattina: ⏰ 7:25
-• Pomeriggio: ⏰ 13:15
-• Sera: ⏰ 19:00
-
-**Sabato:**
-• Mattina: ⏰ 8:00
-• Sera: ⏰ 19:00
-
-**Domenica e Festivi:**
-• ⏰ 9:30 | 11:00 | 12:15 | 13:15 | 17:30 | 19:00
-```
-
-**ESEMPIO 2 - Requisiti Cresima (Lista con Icone):**
-
-```markdown
-Per partecipare al corso Cresima adulti sono necessari:
-
-### 📋 Requisiti
-
-✅ Aver compiuto 16 anni
-✅ Essere battezzati (portare certificato)
-✅ Frequentare tutti gli 8 incontri
-✅ Compilare modulo iscrizione: 🔗 tinyurl.com/cresimapr
-
-### 📅 Date Corso
-
-Il prossimo corso inizierà:
-• **Primo corso:** 11 ottobre 2025, ore 16:30
-• **Secondo corso:** 14 marzo 2026, ore 16:30
-
-Ogni corso consta di **8 incontri** il sabato pomeriggio.
-```
-
-**ESEMPIO 3 - Procedura Battesimo (Step Numerati):**
-
-```markdown
-Siamo lieti di accompagnarvi nel Sacramento del Battesimo!
-
-### 🎯 Come Procedere
-
-1️⃣ **Contattare la segreteria**
-   📞 Tel: 06 323 18 84
-   📧 Email: info@parrocchiasanteugenio.it
-   ⏰ Orari: Lun-Ven 8:00-12:00
-
-2️⃣ **Fissare data Battesimo**
-   Celebriamo preferibilmente:
-   • 📆 Sabato sera (durante Messa)
-   • 📆 Domenica (durante Messa)
-
-3️⃣ **Incontro preparatorio**
-   👥 Con sacerdote, genitori e padrini
-   ⏱️ Durata: circa 1 ora
-   📅 Giorni prima del Battesimo
-
-### 📄 Documenti Necessari
-
-• Certificato di nascita
-• Dati padrino/madrina
-```
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 ⚠️ REGOLE IMPORTANTI:
 
@@ -212,7 +208,7 @@ Siamo lieti di accompagnarvi nel Sacramento del Battesimo!
    • Massimo 3 livelli di nesting
    • Evita liste dentro liste dentro liste
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 💡 QUANDO NON USARE FORMATTAZIONE AVANZATA:
 
@@ -224,112 +220,24 @@ Siamo lieti di accompagnarvi nel Sacramento del Battesimo!
 Esempio NON formattato (corretto così):
 "La catechesi inizia domenica 21 settembre alle ore 10:00 in Aula Magna."
 
-Esempio formattato (corretto):
-Quando ci sono 3+ orari, requisiti, passi da seguire.
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 """
 
 
 class ResponseStructureTemplate(PromptTemplate):
-    """✅ ENHANCED: Template con esempi di formattazione elegante"""
+    """Response structure hints from templates"""
     
-    CATEGORY_STRUCTURES = {
-        'sacrament': """
-**STRUTTURA PER RICHIESTE SACRAMENTI (battesimo, cresima, matrimonio):**
-
-[BLOCCO 1: Accoglienza calorosa - 1-2 frasi]
-• Esprimi gioia sincera per il sacramento
-• Es: "Siamo lieti di accompagnarvi in questo importante passo"
-
-[BLOCCO 2: Informazioni concrete - ✅ USA FORMATTAZIONE]
-**SE 3+ REQUISITI → Usa lista puntata con icone ✅**
-**SE DATE MULTIPLE → Usa intestazione ### 📅 con elenco**
-**SE DOCUMENTI → Usa ### 📄 Documenti Necessari**
-
-Esempio:
-```markdown
-### 📋 Requisiti
-
-✅ Aver ricevuto il Battesimo
-✅ Frequentare gli incontri preparatori
-✅ Presentare certificato battesimo
-
-### 📅 Date Disponibili
-
-• Primo corso: 11/10/2025
-• Secondo corso: 14/03/2026
-```
-
-[BLOCCO 3: Come procedere - numerato se 2+ passi]
-**SE 2+ PASSI → Usa numerazione con icone 1️⃣ 2️⃣ 3️⃣**
-
-[BLOCCO 4: Chiusura rassicurante - 1 frase]
-• "Restiamo a disposizione per qualsiasi chiarimento"
-""",
-        
-        'appointment': """
-**STRUTTURA PER APPUNTAMENTI:**
-
-[BLOCCO 1: Conferma immediata - 1 frase]
-
-[BLOCCO 2: Opzioni concrete - ✅ USA FORMATTAZIONE SE 2+ CONTATTI]
-```markdown
-### 📞 Contatti
-
-• **Telefono:** 06 323 18 84
-• **Email:** info@parrocchiasanteugenio.it
-
-### ⏰ Orari Segreteria
-
-Lun-Ven: 8:00-12:00
-```
-
-[BLOCCO 3: Tempi - 1 frase]
-""",
-        
-        'information': """
-**STRUTTURA PER INFORMAZIONI:**
-
-[BLOCCO 1: Risposta diretta - vai subito al punto]
-
-[BLOCCO 2: Dettagli - ✅ USA FORMATTAZIONE SE INFO COMPLESSE]
-
-**REGOLA: Se stai elencando 3+ ORARI → SEMPRE formatta**
-
-Esempio orari Messe:
-```markdown
-### 🕐 Orari Messe
-
-**Feriali:** 7:25 | 13:15 | 19:00
-**Sabato:** 8:00 | 19:00
-**Festivi:** 9:30 | 11:00 | 12:15 | 13:15 | 17:30 | 19:00
-```
-
-[BLOCCO 3: Riferimenti - solo se necessari]
-""",
-        
-        'collaboration': """
-**STRUTTURA PER PROPOSTE COLLABORAZIONE:**
-
-[Standard senza formattazione particolare]
-La formattazione avanzata qui NON è necessaria.
-""",
-        
-        'complaint': """
-**STRUTTURA PER RECLAMI/PROBLEMI:**
-
-[Standard, eventualmente con icona ⚠️ per evidenziare urgenza]
-"""
-    }
+    def __init__(self):
+        self.template_selector = TemplateSelector()
     
     def render(self, context: PromptContext) -> str:
-        if not context.category:
-            return ""
+        structure_hint = self.template_selector.get_structure_hint(
+            category=context.category,
+            sub_intents=context.sub_intents
+        )
         
-        structure = self.CATEGORY_STRUCTURES.get(context.category, "")
-        if structure:
-            return f"**STRUTTURA RISPOSTA RACCOMANDATA:**\n{structure}\n"
+        if structure_hint:
+            return f"**STRUTTURA RISPOSTA RACCOMANDATA:**\n{structure_hint}\n"
         return ""
 
 
@@ -338,9 +246,9 @@ class HumanToneGuidelinesTemplate(PromptTemplate):
     
     def render(self, context: PromptContext) -> str:
         return """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 🎭 LINEE GUIDA PER TONO UMANO E NATURALE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 1. **VOCE ISTITUZIONALE MA CALDA:**
    ✅ GIUSTO: "Siamo lieti di accompagnarvi", "Restiamo a disposizione"
@@ -382,38 +290,68 @@ class HumanToneGuidelinesTemplate(PromptTemplate):
    • Se è PRIMA INTERAZIONE, sii più completo
    • Se conosci il NOME, usalo nel saluto
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 """
 
 
 class ExamplesTemplate(PromptTemplate):
-    """✅ ENHANCED: Examples with elegant formatting"""
+    """Enhanced examples with link formatting"""
     
     def render(self, context: PromptContext) -> str:
-        # Show examples only for relevant categories
         if context.category not in ['sacrament', 'information', 'appointment']:
             return ""
         
         examples = """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-📚 ESEMPI CON FORMATTAZIONE ELEGANTE
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
+📚 ESEMPI CON FORMATTAZIONE CORRETTA
+═══════════════════════════════════════════════════════════════════════════
 
-**ESEMPIO 1 - ORARI MESSE (Formattazione Pulita):**
+**ESEMPIO 1 - CAMMINO DI SANTIAGO (con link corretti):**
 
-❌ VERSIONE SCADENTE (muro di testo):
-"Gli orari delle messe feriali sono: 7:25, 13:15 e 19:00. Il sabato ci sono messe 
-alle 8:00 e alle 19:00. La domenica e festivi: 9:30, 11:00, 12:15, 13:15, 17:30, 19:00."
-
-✅ VERSIONE ELEGANTE (con formattazione):
+✅ VERSIONE CORRETTA:
 ```markdown
-Buongiorno,
+Buonasera, siamo lieti di fornirle le informazioni sul pellegrinaggio.
 
-Ecco gli **orari delle Sante Messe** (periodo invernale):
+### 🚶 Cammino di Santiago 2026
 
-### 🕐 Orari
+**📅 Date:** 27 giugno - 4 luglio 2026 (8 giorni)
+**📍 Percorso:** Tui (Portogallo) → Santiago (Spagna)
 
-**Giorni Feriali (Lun-Ven):**
+**🔗 Iscrizioni e Info:**
+• Iscrizione online: https://tinyurl.com/santiago26
+• Programma dettagliato: https://tinyurl.com/cammino26
+
+**📞 Contatti:**
+• Email: info@parrocchiasanteugenio.it
+• Tel: 06 3201923
+
+Restiamo a disposizione per qualsiasi chiarimento.
+
+Cordiali saluti,
+Segreteria Parrocchia Sant'Eugenio
+```
+
+❌ VERSIONE SBAGLIATA (DA EVITARE):
+```markdown
+Buonasera, Siamo lieti di fornirle... ← ERRORE: maiuscola dopo virgola
+
+• Iscrizione: [tinyurl.com/santiago26](https://tinyurl.com/santiago26) ← ERRORE: URL ripetuto
+• Programma: [https://tinyurl.com/cammino26](https://tinyurl.com/cammino26) ← ERRORE: URL ripetuto
+
+Restiamo A Disposizione... ← ERRORE: maiuscole casuali
+```
+
+═══════════════════════════════════════════════════════════════════════════
+
+**ESEMPIO 2 - ORARI MESSE (formattazione pulita):**
+
+✅ VERSIONE CORRETTA:
+```markdown
+Buongiorno, ecco gli orari delle Sante Messe.
+
+### 🕐 Orari (periodo invernale)
+
+**Giorni Feriali:**
 ⏰ 7:25 | 13:15 | 19:00
 
 **Sabato:**
@@ -426,112 +364,29 @@ Cordiali saluti,
 Segreteria Parrocchia Sant'Eugenio
 ```
 
-→ **Perché è meglio:**
-  ✓ Visivamente chiaro
-  ✓ Icone appropriate (🕐 ⏰)
-  ✓ Raggruppamento logico
-  ✓ Facile da leggere velocemente
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**ESEMPIO 2 - CORSO CRESIMA (Step Numerati):**
-
-❌ VERSIONE SCADENTE:
-"Per iscriversi al corso Cresima deve compilare il modulo, portare il certificato 
-di battesimo e presentarsi agli incontri. Il corso inizia a ottobre o marzo."
-
-✅ VERSIONE ELEGANTE:
-```markdown
-Buongiorno,
-
-Che bello sapere che desidera ricevere la Cresima!
-
-### 🎓 Come Iscriversi
-
-1️⃣ **Compilare il modulo online**
-   🔗 Link: tinyurl.com/cresimapr
-
-2️⃣ **Preparare i documenti**
-   📄 Certificato di Battesimo (uso sacramenti)
-
-3️⃣ **Frequentare gli incontri**
-   👥 8 incontri il sabato, ore 16:30
-
-### 📅 Date Prossimi Corsi
-
-• **Primo corso:** Inizio 11 ottobre 2025
-• **Secondo corso:** Inizio 14 marzo 2026
-
-Restiamo a disposizione per qualsiasi chiarimento.
-
-Cordiali saluti,
-Segreteria Parrocchia Sant'Eugenio
-```
-
-→ **Perché è meglio:**
-  ✓ Passi chiari e numerati
-  ✓ Icone contestuali (📄 📅 👥)
-  ✓ Date ben visibili
-  ✓ Struttura logica
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-
-**ESEMPIO 3 - CONTATTI SEGRETERIA (Info Box):**
-
-❌ VERSIONE SCADENTE:
-"Può contattarci al numero 06 323 18 84 oppure via email a 
-info@parrocchiasanteugenio.it. Siamo aperti dal lunedì al venerdì dalle 8 alle 12."
-
-✅ VERSIONE ELEGANTE:
-```markdown
-Buongiorno,
-
-Saremo lieti di aiutarla.
-
-### 📞 Contatti Segreteria
-
-**Telefono:** 06 323 18 84
-**Email:** info@parrocchiasanteugenio.it
-
-### ⏰ Orari Apertura
-
-Lunedì - Venerdì: 8:00 - 12:00
-
-📍 **Dove siamo**
-Viale delle Belle Arti 10, 00196 Roma
-
-Cordiali saluti,
-Segreteria Parrocchia Sant'Eugenio
-```
-
-→ **Perché è meglio:**
-  ✓ Info raggruppate per tipo
-  ✓ Facile trovare telefono/email
-  ✓ Icone aiutano scansione visiva
-
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 **QUANDO NON FORMATTARE:**
 
 ✅ ESEMPIO CORRETTO (senza formattazione):
-"Buongiorno, la catechesi inizia domenica 21 settembre alle ore 10:00 in Aula Magna."
+"Buongiorno, la catechesi inizia domenica 21 settembre alle ore 10:00."
 
-→ Qui la formattazione NON serve: info singola, breve, chiara.
+→ Info singola, breve, chiara = no formattazione necessaria.
 
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 """
         return examples
 
 
 class LanguageInstructionTemplate(PromptTemplate):
-    """Language-specific instructions - ENHANCED for better language enforcement"""
+    """Language-specific instructions"""
     
     INSTRUCTIONS = {
         'it': "Rispondi in italiano, la lingua dell'email ricevuta.",
         'en': """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 🚨🚨🚨 CRITICAL LANGUAGE REQUIREMENT - ENGLISH 🚨🚨🚨
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 The incoming email is written in ENGLISH.
 
@@ -547,12 +402,12 @@ YOU MUST NOT:
 ❌ Write the greeting or closing in Italian
 
 This is MANDATORY. The sender speaks English and will not understand Italian.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 """,
         'es': """
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 🚨🚨🚨 REQUISITO CRÍTICO DE IDIOMA - ESPAÑOL 🚨🚨🚨
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 
 El correo recibido está escrito en ESPAÑOL.
 
@@ -568,7 +423,7 @@ NO DEBES:
 ❌ Escribir el saludo o la despedida en italiano
 
 Esto es OBLIGATORIO. El remitente habla español y no entenderá italiano.
-━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+═══════════════════════════════════════════════════════════════════════════
 """
     }
     
@@ -668,10 +523,9 @@ class NoReplyRulesTemplate(PromptTemplate):
 
 
 class ResponseGuidelinesTemplate(PromptTemplate):
-    """Core response guidelines - ENHANCED with language-specific instructions"""
+    """Core response guidelines - ENHANCED with critical reminders"""
     
     def render(self, context: PromptContext) -> str:
-        # Language-specific format instructions
         if context.detected_language == 'en':
             format_section = f"""1. **Response Format (ENGLISH REQUIRED):**
    {context.salutation}
@@ -686,6 +540,13 @@ class ResponseGuidelinesTemplate(PromptTemplate):
             language_reminder = """4. **LANGUAGE: ⚠️ RESPOND IN ENGLISH ONLY**
    • NO Italian words allowed
    • Use English for everything: greeting, body, closing"""
+            critical_section = """
+5. **🚨 CRITICAL ERRORS TO AVOID:**
+   ❌ Capital after comma: "Hello, We are..." → WRONG
+   ✅ Lowercase after comma: "Hello, we are..." → CORRECT
+   
+   ❌ Repeated URL in link: [tinyurl.com/x](https://tinyurl.com/x) → WRONG
+   ✅ Description in link: Registration form: https://tinyurl.com/x → CORRECT"""
         elif context.detected_language == 'es':
             format_section = f"""1. **Formato de respuesta (ESPAÑOL REQUERIDO):**
    {context.salutation}
@@ -700,6 +561,13 @@ class ResponseGuidelinesTemplate(PromptTemplate):
             language_reminder = """4. **IDIOMA: ⚠️ RESPONDE SOLO EN ESPAÑOL**
    • NO se permiten palabras italianas
    • Usa español para todo: saludo, cuerpo, despedida"""
+            critical_section = """
+5. **🚨 ERRORES CRÍTICOS A EVITAR:**
+   ❌ Mayúscula tras coma: "Hola, Estamos..." → MAL
+   ✅ Minúscula tras coma: "Hola, estamos..." → BIEN
+   
+   ❌ URL repetida: [tinyurl.com/x](https://tinyurl.com/x) → MAL
+   ✅ Descripción: Formulario: https://tinyurl.com/x → BIEN"""
         else:
             format_section = f"""1. **Formato risposta:**
    {context.salutation}
@@ -712,6 +580,13 @@ class ResponseGuidelinesTemplate(PromptTemplate):
    • ✅ Formatta elegantemente se 3+ elementi/orari
    • Follow-up (Re:): sii più diretto e conciso"""
             language_reminder = "4. **Lingua:** Rispondi in italiano"
+            critical_section = """
+5. **🚨 ERRORI CRITICI DA EVITARE:**
+   ❌ Maiuscola dopo virgola: "Buonasera, Siamo..." → SBAGLIATO
+   ✅ Minuscola dopo virgola: "Buonasera, siamo..." → GIUSTO
+   
+   ❌ URL ripetuto: [tinyurl.com/x](https://tinyurl.com/x) → SBAGLIATO
+   ✅ Descrizione: Iscrizione: https://tinyurl.com/x → GIUSTO"""
         
         return f"""**LINEE GUIDA RISPOSTA:**
 
@@ -721,7 +596,9 @@ class ResponseGuidelinesTemplate(PromptTemplate):
 
 3. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
 
-{language_reminder}"""
+{language_reminder}
+
+{critical_section}"""
 
 
 class SpecialCasesTemplate(PromptTemplate):
@@ -748,36 +625,62 @@ Se trovi il blocco "VERIFICA TERRITORIO AUTOMATICA":
 ❌ NON fare supposizioni personali"""
 
 
+class FinalChecklistTemplate(PromptTemplate):
+    """🆕 NEW: Final checklist before generating response"""
+    
+    def render(self, context: PromptContext) -> str:
+        return """
+═══════════════════════════════════════════════════════════════════════════
+✅ CHECKLIST FINALE - CONTROLLA PRIMA DI GENERARE
+═══════════════════════════════════════════════════════════════════════════
+
+Prima di generare la risposta, verifica mentalmente:
+
+□ Dopo ogni virgola uso MINUSCOLA (non "Ciao, Siamo" ma "Ciao, siamo")
+□ Nei link markdown uso [DESCRIZIONE](URL) non [URL](URL)
+□ Ho usato solo info dalla knowledge base
+□ Ho risposto alla lingua dell'email (IT/EN/ES)
+□ Se 3+ elementi/orari → ho usato formattazione markdown
+□ Se 1-2 info → ho evitato formattazione eccessiva
+□ Ho usato prima persona plurale (siamo/restiamo)
+□ Non ho inventato informazioni
+
+═══════════════════════════════════════════════════════════════════════════
+"""
+
+
 class PromptEngine:
     """
-    Modular prompt composition engine with elegant formatting support
-    
-    ✅ ENHANCED: Integrated formatting guidelines with icons
+    Modular prompt composition engine
+    ✅ ENHANCED: Added critical errors at beginning and end
     """
     
     def __init__(self):
-        logger.info("🎨 Initializing Enhanced PromptEngine with formatting support...")
+        logger.info("🎨 Initializing Enhanced PromptEngine with strict rule enforcement...")
         
         # Template pipeline (order matters)
+        # 🎯 STRATEGY: Critical errors shown FIRST and LAST for reinforcement
         self.template_pipeline = [
+            CriticalErrorsTemplate(),  # 🆕 Show critical errors FIRST
             SystemRoleTemplate(),
             LanguageInstructionTemplate(),
             KnowledgeBaseTemplate(),
             TerritoryVerificationTemplate(),
             SeasonalContextTemplate(),
             CategoryHintTemplate(),
-            FormattingGuidelinesTemplate(),  # ✅ NEW
+            FormattingGuidelinesTemplate(),
             ResponseStructureTemplate(),
             ConversationHistoryTemplate(),
             EmailContentTemplate(),
             NoReplyRulesTemplate(),
             HumanToneGuidelinesTemplate(),
-            ExamplesTemplate(),  # ✅ ENHANCED with formatting examples
+            ExamplesTemplate(),
             ResponseGuidelinesTemplate(),
             SpecialCasesTemplate(),
+            FinalChecklistTemplate(),  # 🆕 Show checklist LAST
         ]
         
-        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates (with formatting support)")
+        logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates")
     
     def build_prompt(
         self,
@@ -792,14 +695,10 @@ class PromptEngine:
         current_season: str,
         now: datetime,
         salutation: str,
-        closing: str
+        closing: str,
+        sub_intents: Dict = None
     ) -> str:
-        """
-        Build optimized prompt with elegant formatting guidance
-        
-        Returns:
-            Complete prompt with formatting instructions
-        """
+        """Build optimized prompt with critical rules reinforcement"""
         context = PromptContext(
             email_content=email_content,
             email_subject=email_subject,
@@ -812,7 +711,8 @@ class PromptEngine:
             current_season=current_season,
             now=now,
             salutation=salutation,
-            closing=closing
+            closing=closing,
+            sub_intents=sub_intents or {}
         )
         
         # Render all templates
@@ -820,7 +720,7 @@ class PromptEngine:
         for template in self.template_pipeline:
             try:
                 rendered = template.render(context)
-                if rendered:  # Skip empty sections
+                if rendered:
                     sections.append(rendered)
             except Exception as e:
                 logger.error(f"Error rendering {template.__class__.__name__}: {e}")
@@ -830,7 +730,7 @@ class PromptEngine:
         prompt = "\n\n".join(sections)
         prompt += "\n\n**Genera la risposta completa seguendo le linee guida sopra:**"
         
-        logger.debug(f"📐 Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+        logger.debug(f"📝 Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
         
         return prompt
     

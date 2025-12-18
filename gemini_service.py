@@ -7,7 +7,7 @@ Gemini API service module for AI responses - CLEANED VERSION
 import requests
 import json
 import time
-from typing import Optional, Dict
+from typing import Optional, Dict, Any, Union
 import config
 from utils import get_current_season, get_special_day_greeting
 from datetime import datetime
@@ -15,6 +15,7 @@ from zoneinfo import ZoneInfo
 import logging
 from prompt_engine import PromptEngine, PromptContext
 from territory_validator import TerritoryValidator
+import re
 
 logger = logging.getLogger(__name__)
 
@@ -78,8 +79,8 @@ class GeminiService:
         Detect email language with enhanced detection for English, Spanish, Italian
         
         ✅ CENTRALIZED: This is the ONLY place for language detection
-        ✅ IMPROVED: Better English/Spanish/Italian distinction
-        ✅ FIXED: No longer defaults to Italian when English is detected
+        ✅ IMPROVED: Regex-based word detection to prevent partial matches
+        ✅ FIXED: Removed ambiguous keywords like 'a', 'in'
         """
         text = (email_subject + ' ' + email_content).lower()
         original_text = email_subject + ' ' + email_content  # Keep original for special chars
@@ -104,7 +105,7 @@ class GeminiService:
         # English keywords - ✅ ENHANCED with weighted scoring
         # High-value keywords (unique to English, score 2 each)
         english_unique_keywords = [
-            'the ', ' the', 'would', 'could', 'should', 'might',
+            'the', 'would', 'could', 'should', 'might',
             'we are', 'you are', 'they are', 'i am', "i'm", "we're", "you're",
             'please', 'thank you', 'thanks', 'dear sir', 'dear madam',
             'kind regards', 'best regards', 'sincerely', 'yours truly',
@@ -118,8 +119,8 @@ class GeminiService:
         
         # Standard English keywords (score 1 each)
         english_standard_keywords = [
-            # Articles and conjunctions (very distinctive)
-            ' and ', ' or ', ' but ', ' an ', ' a ',
+            # Articles and conjunctions (REMOVED 'a', 'in')
+            ' and ', ' but ', ' an ',
             # Modal verbs and auxiliaries
             'will', 'can', 'may', 'shall', 'must',
             'have', 'has', 'had', 'do', 'does', 'did',
@@ -128,8 +129,8 @@ class GeminiService:
             'know', 'think', 'see', 'find', 'help', 'work',
             # Question words
             'what', 'when', 'where', 'how', 'why', 'which', 'who',
-            # Prepositions
-            ' on ', ' of ', ' to ', ' from ', ' for ', ' with ', ' at ', ' by ', ' in ',
+            # Prepositions (REMOVED 'in')
+            ' on ', ' of ', ' to ', ' from ', ' for ', ' with ', ' at ', ' by ',
             # Business/marketing terms
             'website', 'business', 'offer', 'price', 'service', 'services',
             'interested', 'project', 'information', 'plan', 'list',
@@ -178,17 +179,34 @@ class GeminiService:
         ]
 
         # ═══════════════════════════════════════════════════════════════
-        # Count keyword matches with weighted scoring for English
+        # Match counting with REGEX WORD BOUNDARIES
         # ═══════════════════════════════════════════════════════════════
+        
+        def count_matches(keywords, txt, weight=1):
+            count = 0
+            for kw in keywords:
+                # If keyword has explicit spaces, treat as substring match
+                if kw.startswith(' ') or kw.endswith(' '):
+                    if kw in txt:
+                        count += weight * txt.count(kw)
+                else:
+                    # Use regex boundaries for clean words
+                    # Escape keyword to handle potential special chars
+                    pattern = r'\b' + re.escape(kw) + r'\b'
+                    matches = re.findall(pattern, txt)
+                    if matches:
+                        count += weight * len(matches)
+            return count
+
         english_score = (
-            sum(2 for kw in english_unique_keywords if kw in text) +
-            sum(1 for kw in english_standard_keywords if kw in text)
+            count_matches(english_unique_keywords, text, 2) +
+            count_matches(english_standard_keywords, text, 1)
         )
         
         scores = {
             'en': english_score,
-            'es': sum(1 for kw in spanish_keywords if kw in text) + spanish_char_score,
-            'it': sum(1 for kw in italian_keywords if kw in text)
+            'es': count_matches(spanish_keywords, text, 1) + spanish_char_score,
+            'it': count_matches(italian_keywords, text, 1)
         }
 
         # Log scoring details
@@ -198,8 +216,7 @@ class GeminiService:
         max_score = scores[detected_lang]
         
         # ═══════════════════════════════════════════════════════════════
-        # Confidence threshold logic - ✅ FIXED: Don't default to Italian
-        # when English or Spanish indicators are present
+        # Confidence threshold logic
         # ═══════════════════════════════════════════════════════════════
         
         # If Spanish has special characters, prefer Spanish
@@ -290,12 +307,15 @@ class GeminiService:
         sender_name: str,
         sender_email: str,
         conversation_history: str = "",
-        category: Optional[str] = None
+        category: Optional[str] = None,
+        sub_intents: Optional[Dict] = None,  # ✅ NEW: Emotional nuances
+        detected_language: Optional[str] = None  # ✅ NEW: Language override from quick check
     ) -> Optional[str]:
         """
         Generate AI response - CLEANED VERSION
         
         ✅ FIXED: Uses ONLY PromptEngine, no duplication
+        ✅ NEW: Passes sub_intents for dynamic template selection
         """
         # Quick check for acknowledgment
         main_reply = self._extract_main_reply(email_content)
@@ -303,10 +323,15 @@ class GeminiService:
             logger.info("Detected acknowledgment, returning NO_REPLY")
             return "NO_REPLY"
 
-        # Detect language and prepare context
+        # Detect language (use override if provided, else fallback to internal detection)
         now = datetime.now(ITALIAN_TZ)
-        detected_language = self._detect_email_language(email_content, email_subject)
-        salutation, closing = self._get_adaptive_greeting(now, sender_name, detected_language)
+        if detected_language:
+            logger.info(f"   Language pre-detected by Gemini: {detected_language}")
+            final_language = detected_language
+        else:
+            final_language = self._detect_email_language(email_content, email_subject)
+            
+        salutation, closing = self._get_adaptive_greeting(now, sender_name, final_language)
         current_season = get_current_season(now)
 
         # ═══════════════════════════════════════════════════════════════
@@ -344,11 +369,12 @@ Dettaglio: {verification['reason']}
             sender_email=sender_email,
             conversation_history=conversation_history,
             category=category,
-            detected_language=detected_language,
+            detected_language=final_language,
             current_season=current_season,
             now=now,
             salutation=salutation,
-            closing=closing
+            closing=closing,
+            sub_intents=sub_intents or {}  # ✅ NEW
         )
 
         # Validate prompt size
@@ -547,40 +573,51 @@ Conversazione:
 
         results['is_healthy'] = results['connection_ok'] and results['can_generate']
         return results
-    def should_respond_to_email(self, email_content: str, email_subject: str) -> bool:
+    def should_respond_to_email(self, email_content: str, email_subject: str) -> Dict[str, Any]:
         """
-        Lightweight Gemini call to decide if email needs response
+        Lightweight Gemini call to decide if email needs response AND detect language
         
-        Uses minimal tokens to decide YES/NO based on email content.
-        This is called BEFORE building full context and generating response.
+        Uses minimal tokens to decide YES/NO based on email content
+        AND return the language code.
         
         Args:
             email_content: Email body text
             email_subject: Email subject
             
         Returns:
-            True if email needs response, False otherwise
+            Dict with:
+            - 'should_respond': bool
+            - 'language': str (code 'it', 'en', 'es', etc.)
+            - 'reason': str
         """
-        # Build lightweight prompt
-        prompt = f"""Analizza questa email e rispondi SOLO "SI" o "NO".
-
-Domanda: Questa email richiede una risposta dalla segreteria parrocchiale?
+        # Build lightweight prompt requesting JSON
+        prompt = f"""Analizza questa email.
+Rispondi ESCLUSIVAMENTE con un oggetto JSON.
 
 Email:
 Oggetto: {email_subject}
-Testo: {email_content[:500]}
+Testo: {email_content[:800]}
 
-Criteri:
-- NO se è solo ringraziamento/conferma ricevuta
-- NO se è saluto generico senza domande
-- NO se è solo acknowledgment ("ok", "perfetto", "grazie")
-- SI se contiene domande, richieste, dubbi
-- SI se richiede azione/conferma/informazioni
+Compiti:
+1. Decidi se richiede risposta (reply_needed: true/false)
+2. Rileva la lingua (language: codice iso 2 lettere es. 'it', 'en', 'es', 'fr')
+3. Motivo sintetico (reason)
 
-Risposta (una sola parola):"""
+Criteri per reply_needed:
+- FALSE se è solo ringraziamento/conferma ricevuta/saluto generico
+- FALSE se è solo acknowledgment ("ok", "perfetto", "grazie")
+- TRUE se contiene domande, richieste, dubbi, richiesta conferma azione
+
+Output JSON atteso:
+{{
+  "reply_needed": boolean,
+  "language": "string",
+  "reason": "string"
+}}
+"""
 
         try:
-            logger.info(f"🔍 Gemini quick check for: {email_subject[:40]}...")
+            logger.info(f"🔍 Gemini quick check + Lang detect for: {email_subject[:40]}...")
             
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
@@ -588,38 +625,60 @@ Risposta (una sola parola):"""
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
                         "temperature": 0,  # Deterministic decision
-                        "maxOutputTokens": config.GEMINI_QUICK_CHECK_MAX_TOKENS
+                        "maxOutputTokens": 100,
+                        "responseMimeType": "application/json"  # Force JSON
                     }
                 },
                 headers={"Content-Type": "application/json"},
                 timeout=config.GEMINI_QUICK_CHECK_TIMEOUT
             )
             
+            # Default failsafe result
+            default_result = {'should_respond': True, 'language': 'it', 'reason': 'failsafe'}
+
             if response.status_code == 200:
                 result = response.json()
                 
                 if not result.get("candidates"):
-                    logger.warning("⚠️  Quick check: No candidates, defaulting to YES")
-                    return True
+                    logger.warning("⚠️  Quick check: No candidates, defaulting to YES/IT")
+                    return default_result
                 
-                answer = result["candidates"][0]["content"]["parts"][0]["text"].strip().upper()
-                
-                # Parse response
-                should_respond = "SI" in answer or "YES" in answer
-                
-                logger.info(f"   Quick check result: {'YES' if should_respond else 'NO'} (raw: {answer})")
-                return should_respond
+                # Parse JSON response
+                try:
+                    text_response = result["candidates"][0]["content"]["parts"][0]["text"]
+                    data = json.loads(text_response)
+                    
+                    decision = data.get('reply_needed', True)
+                    language = data.get('language', 'it').lower()
+                    reason = data.get('reason', 'no reason provided')
+                    
+                    # Normalize common language codes if needed
+                    if language not in ['it', 'en', 'es', 'fr', 'de', 'pt']:
+                        logger.warning(f"   ⚠️ Possible invalid language code '{language}', defaulting to 'it'")
+                        language = 'it'
+                    
+                    logger.info(f"   Quick check: Reply={decision}, Lang={language} ({reason})")
+                    
+                    return {
+                        'should_respond': decision,
+                        'language': language,
+                        'reason': reason
+                    }
+                    
+                except json.JSONDecodeError:
+                    logger.error(f"❌ JSON decode error in quick check: {text_response}")
+                    return default_result
                 
             else:
-                logger.warning(f"⚠️  Quick check API error: {response.status_code}, defaulting to YES")
-                return True  # Failsafe: if in doubt, respond
+                logger.warning(f"⚠️  Quick check API error: {response.status_code}, defaulting to YES/IT")
+                return default_result
                 
         except requests.exceptions.Timeout:
-            logger.warning("⏱️  Quick check timeout, defaulting to YES")
-            return True  # Failsafe: timeout → respond
+            logger.warning("⏱️  Quick check timeout, defaulting to YES/IT")
+            return {'should_respond': True, 'language': 'it', 'reason': 'timeout'}
             
         except Exception as e:
-            logger.warning(f"⚠️  Quick check failed: {e}, defaulting to YES")
-            return True  # Failsafe: error → respond
+            logger.warning(f"⚠️  Quick check failed: {e}, defaulting to YES/IT")
+            return {'should_respond': True, 'language': 'it', 'reason': f'error: {str(e)}'}
 
         

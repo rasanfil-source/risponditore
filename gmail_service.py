@@ -234,7 +234,6 @@ class GmailManager:
         try:
             query = 'is:unread'
             if exclude_label:
-                # Note: Gmail query uses label name, not ID
                 query += f' -label:{exclude_label}'
             
             results = self.service.users().threads().list(
@@ -767,8 +766,8 @@ class GmailManager:
                         userId='me',
                         id=test_label_id
                     ).execute()
-                except:
-                    pass  # Ignore cleanup errors
+                except Exception as e:
+                    logger.debug(f"Test label cleanup error (non-critical): {e}")
                     
             except Exception as e:
                 results['errors'].append(f"Cannot create labels: {str(e)}")

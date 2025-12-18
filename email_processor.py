@@ -331,17 +331,23 @@ class EmailProcessor:
                 return {'status': 'filtered', 'reason': classification['reason']}
 
             # === STAGE 2c: Gemini Lightweight Check ===
+            detected_language_override = None
+            
             if config.ENABLE_GEMINI_QUICK_CHECK:
                 logger.info(f"   🤖 Stage 2c: Gemini lightweight check...")
                 
                 try:
-                    should_respond = self.gemini.should_respond_to_email(
+                    # Returns {'should_respond': bool, 'language': str, 'reason': str}
+                    quick_check_result = self.gemini.should_respond_to_email(
                         message_details['body'],
                         message_details['subject']
                     )
                     
+                    should_respond = quick_check_result.get('should_respond', True)
+                    detected_language_override = quick_check_result.get('language')
+                    
                     if not should_respond:
-                        logger.info(f"   ⊘ Gemini quick check: NO response needed")
+                        logger.info(f"   ⊘ Gemini quick check: NO response needed ({quick_check_result.get('reason')})")
                         self.gmail.add_label_to_thread(thread['id'], label_name)
                         return {
                             'status': 'filtered',
@@ -349,7 +355,7 @@ class EmailProcessor:
                             'filter_stage': 'gemini_lightweight'
                         }
                     
-                    logger.info(f"   ✓ Gemini quick check: Response needed")
+                    logger.info(f"   ✓ Gemini quick check: Response needed (lang: {detected_language_override})")
                     
                 except Exception as e:
                     logger.warning(f"   ⚠️  Gemini quick check failed: {e}")
@@ -390,7 +396,9 @@ class EmailProcessor:
                 message_details['sender_name'],
                 message_details['sender_email'],
                 summarized_history,
-                category=classification.get('category')
+                category=classification.get('category'),
+                sub_intents=classification.get('sub_intents', {}),  # ✅ NEW: Pass emotional nuances
+                detected_language=detected_language_override  # ✅ NEW: Pass detected language
             )
 
             # Check if response was generated
@@ -410,10 +418,14 @@ class EmailProcessor:
             logger.info(f"   🔍 Stage 5: Advanced response validation...")
             
             # Detect language for validation
-            detected_language = self.gemini._detect_email_language(
-                message_details['body'], 
-                message_details['subject']
-            )
+            # Use override if available to avoid re-detection mismatch
+            if detected_language_override:
+                detected_language = detected_language_override
+            else:
+                detected_language = self.gemini._detect_email_language(
+                    message_details['body'], 
+                    message_details['subject']
+                )
             
             # Perform comprehensive validation
             validation_result = self.validator.validate_response(

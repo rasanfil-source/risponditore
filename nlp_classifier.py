@@ -16,6 +16,8 @@ class EmailClassifier:
     - Filter ONLY standalone greetings
     - EVERYTHING ELSE goes to Gemini for intelligent analysis
     - Zero false negatives: when in doubt, let Gemini decide
+    
+    ✅ NEW: Sub-intent detection for emotional nuances (extensible)
     """
 
     def __init__(self):
@@ -70,8 +72,47 @@ class EmailClassifier:
             ]
         }
         
+        # ═══════════════════════════════════════════════════════════════
+        # ✅ NEW: Sub-intent keywords for emotional nuances (EXTENSIBLE)
+        # Add new keys here to detect more nuances in the future
+        # ═══════════════════════════════════════════════════════════════
+        self.sub_intent_keywords = {
+            'emotional_distress': [
+                # Italian
+                'deluso', 'delusa', 'delusione', 'arrabbiato', 'arrabbiata',
+                'insoddisfatto', 'insoddisfatta', 'frustrato', 'frustrata',
+                'scandalizzato', 'scandalizzata', 'indignato', 'indignata',
+                'amareggiato', 'amareggiata', 'dispiaciuto', 'dispiaciuta',
+                'non va bene', 'inaccettabile', 'vergogna', 'pessimo', 'pessima',
+                # English
+                'disappointed', 'angry', 'frustrated', 'upset', 'unacceptable'
+            ],
+            'gratitude': [
+                # Italian
+                'ringrazio', 'grato', 'grata', 'riconoscente', 
+                'gentilissimo', 'gentilissima', 'prezioso aiuto',
+                # English
+                'grateful', 'thankful', 'appreciate'
+            ],
+            'bereavement': [
+                # Italian (for future: special tone for bereavement situations)
+                'lutto', 'defunto', 'defunta', 'morto', 'morta', 'decesso',
+                'scomparso', 'scomparsa', 'funerale', 'esequie',
+                # English
+                'deceased', 'passed away', 'funeral', 'bereavement'
+            ],
+            'confusion': [
+                # Italian (for future: extra clarity in responses)
+                'non capisco', 'confuso', 'confusa', 'non mi è chiaro',
+                'potrebbe spiegare', 'non ho capito',
+                # English
+                'confused', 'unclear', 'don\'t understand'
+            ]
+        }
+        
         print(f"✓ Simplified Classifier initialized")
         print(f"   Philosophy: Filter only obvious cases, delegate rest to Gemini")
+        print(f"   Sub-intents: {len(self.sub_intent_keywords)} emotional nuances detected")
 
     def classify_email(self, subject: str, body: str, is_reply: bool = False) -> Dict:
         """
@@ -81,6 +122,8 @@ class EmailClassifier:
         - Check ONLY for 3-word-max acknowledgments
         - Check ONLY for standalone greetings
         - Everything else → should_reply=True (let Gemini decide)
+        
+        ✅ NEW: Detects sub-intents (emotional nuances) for response tone
 
         Args:
             subject: Email subject
@@ -88,7 +131,7 @@ class EmailClassifier:
             is_reply: Whether this is a reply in a thread
 
         Returns:
-            Classification result with should_reply decision
+            Classification result with should_reply decision and sub_intents
         """
         
         print(f"   🔍 Classifying: '{subject[:50]}...'")
@@ -105,6 +148,7 @@ class EmailClassifier:
                 'should_reply': False,
                 'reason': 'ultra_simple_acknowledgment',
                 'category': None,
+                'sub_intents': {},
                 'confidence': 1.0
             }
 
@@ -115,20 +159,28 @@ class EmailClassifier:
                 'should_reply': False,
                 'reason': 'greeting_only',
                 'category': None,
+                'sub_intents': {},
                 'confidence': 0.95
             }
 
         # EVERYTHING ELSE: Pass to Gemini for intelligent analysis
-        category = self._categorize_content(subject + ' ' + main_content)
+        full_text = subject + ' ' + main_content
+        category = self._categorize_content(full_text)
+        
+        # ✅ NEW: Detect sub-intents (emotional nuances)
+        sub_intents = self._detect_sub_intents(full_text)
         
         print(f"      ✓ Passing to Gemini for intelligent analysis")
         if category:
             print(f"      → Category hint: {category}")
+        if sub_intents:
+            print(f"      → Sub-intents: {list(sub_intents.keys())}")
         
         return {
             'should_reply': True,  # Default: let Gemini decide
             'reason': 'needs_ai_analysis',
             'category': category,
+            'sub_intents': sub_intents,
             'confidence': 0.85 if category else 0.75
         }
 
@@ -260,6 +312,32 @@ class EmailClassifier:
 
         return max(category_scores, key=category_scores.get)
 
+    def _detect_sub_intents(self, text: str) -> Dict[str, bool]:
+        """
+        ✅ NEW: Detect emotional sub-intents in text
+        
+        Returns dict of detected sub-intents (only those that are True).
+        This is used to adjust response tone.
+        
+        EXTENSIBLE: Add new keys to self.sub_intent_keywords to detect more nuances.
+        
+        Args:
+            text: Combined subject + body text
+            
+        Returns:
+            Dict like {'emotional_distress': True} for detected intents
+        """
+        text_lower = text.lower()
+        detected = {}
+        
+        for intent_name, keywords in self.sub_intent_keywords.items():
+            for keyword in keywords:
+                if keyword in text_lower:
+                    detected[intent_name] = True
+                    break  # One match is enough for this intent
+        
+        return detected
+
     def should_process_by_time(self, is_suspension_time: bool) -> bool:
         """Check if email should be processed based on suspension time"""
         return not is_suspension_time
@@ -268,6 +346,7 @@ class EmailClassifier:
         """Get classifier statistics"""
         return {
             'categories': len(self.categories),
+            'sub_intents': len(self.sub_intent_keywords),
             'ultra_simple_ack_patterns': len(self.ultra_simple_ack_patterns),
             'greeting_patterns': len(self.greeting_only_patterns),
             'philosophy': 'minimal_filtering_gemini_decides'
