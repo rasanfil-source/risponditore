@@ -14,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
 from prompt_engine import PromptEngine, PromptContext
+from knowledge_engine import KnowledgeEngine
 from territory_validator import TerritoryValidator
 import re
 
@@ -70,6 +71,7 @@ class GeminiService:
 
         # ✅ FIXED: Initialize only once
         self.prompt_engine = PromptEngine()
+        self.knowledge_engine = KnowledgeEngine()
         self.territory_validator = TerritoryValidator()
 
         logger.info(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
@@ -147,7 +149,8 @@ class GeminiService:
         # Spanish keywords (more distinctive, avoiding overlap with Italian)
         spanish_keywords = [
             # Common verbs and conjugations
-            'he ido', 'había', 'hay', 'ido', 'sido', 'tengo', 'tiene', 
+            # Removed: 'tengo', 'tiene' (overlap with Italian 'tenere')
+            'he ido', 'había', 'hay', 'ido', 'sido', 
             'hacer', 'haber', 'poder', 'estar', 'estoy', 'están',
             # Questions and common words
             'por qué', 'porque', 'cuándo', 'cómo', 'dónde', 'qué tal',
@@ -155,10 +158,18 @@ class GeminiService:
             'por favor', 'muchas gracias', 'buenos días', 'buenas tardes',
             'querido', 'estimado', 'saludos',
             # Pronouns and particles
-            ' no ', ' sí ', ' un ', ' una ', ' unos ', ' unas ',
-            ' del ', ' al ', ' con el ', ' en el ', ' es ', ' son ',
+            # Removed: 'sí', 'al', 'son' (Italian overlap)
+            ' no ', ' un ', ' unos ', ' unas ',
+            ' del ', ' con el ', ' en el ', ' es ',
             # Common Spanish words
-            'somos', 'proyecto', 'información', 'quiero', 'quisiera'
+            'somos', 'proyecto', 'información', 'quiero', 'quisiera', 'necesito',
+            'bueno', 'bien', 'asi', 'luego', 'entonces',
+            # High-frequency non-accented words (User request + extras)
+            # Removed: 'una', 'de' (Italian overlap)
+            # Removed: 'como' (exists in Italian 'Como'), 'tengo'/'tiene' (verb tenere), 'son' (apocope)
+            'que', 'cuando', 'quien', 'tambien', 'para', 'por', 
+            ' y ', 'sus', 'hola', 'los', 'las', 'el ',
+            'informacion', 'favor', 'muy', 'usted', 'ahora', 'aqui', 'gracias'
         ]
         
         # Italian keywords (more distinctive, avoiding overlap with Spanish)
@@ -171,8 +182,8 @@ class GeminiService:
             # Greetings and phrases
             'per favore', 'per piacere', 'molte grazie', 'buongiorno',
             'buonasera', 'gentile', 'egregio', 'cordiali saluti',
-            # Pronouns and particles
-            ' non ', ' il ', ' la ', ' di ', ' da ', ' con ',
+            # Pronouns and particles (Updated: removed 'con', 'la', 'lo' to avoid Spanish overlap)
+            ' non ', ' il ', ' di ', ' da ',
             ' nel ', ' della ', ' degli ', ' delle ',
             # Common Italian words
             'progetto', 'informazione', 'informazioni', 'vorrei', 'gradirei'
@@ -309,7 +320,8 @@ class GeminiService:
         conversation_history: str = "",
         category: Optional[str] = None,
         sub_intents: Optional[Dict] = None,  # ✅ NEW: Emotional nuances
-        detected_language: Optional[str] = None  # ✅ NEW: Language override from quick check
+        detected_language: Optional[str] = None,  # ✅ NEW: Language override from quick check
+        memory_context: Optional[Dict] = None  # 🧠 LIGHT MEMORY CONTEXT
     ) -> Optional[str]:
         """
         Generate AI response - CLEANED VERSION
@@ -374,8 +386,28 @@ Dettaglio: {verification['reason']}
             now=now,
             salutation=salutation,
             closing=closing,
-            sub_intents=sub_intents or {}  # ✅ NEW
+            sub_intents=sub_intents or {},  # ✅ NEW
+            memory_context=memory_context  # 🧠 PASS MEMORY
         )
+        # Prepare internal guidance sections (not exposed to user)
+        guidelines = []
+        # Level 0 – always include tone guidelines
+        lite = self.knowledge_engine.get_tone_guidelines()
+        if lite:
+            guidelines.append(lite)
+        # Level 1 – pastoral criteria for sensitive categories
+        if category in {"moral", "sacramental", "matrimonial", "pastoral"}:
+            core = self.knowledge_engine.get_pastoral_guidelines()
+            if core:
+                guidelines.append(core)
+        # Level 2 – explicit doctrinal request detection
+        if "spiegazione" in email_content.lower() or "perché" in email_content.lower():
+            doctrine = self.knowledge_engine.get_doctrinal_content()
+            if doctrine:
+                guidelines.append(doctrine)
+        if guidelines:
+            internal_section = "\n---\n" + "\n\n".join(guidelines) + "\n---\n"
+            prompt = internal_section + prompt
 
         # Validate prompt size
         if len(prompt) > 100000:
@@ -386,12 +418,20 @@ Dettaglio: {verification['reason']}
             logger.info(f"🤖 Calling Gemini API for: {sender_email}")
             logger.debug(f"   Prompt size: {len(prompt)} chars")
 
+            # Determine temperature based on category
+            temperature = config.TEMPERATURE
+            if category and hasattr(config, 'TEMPERATURE_BY_CATEGORY'):
+                # Normalize category to match config keys if needed
+                temp_key = category.lower() if category else 'default'
+                temperature = config.TEMPERATURE_BY_CATEGORY.get(temp_key, config.TEMPERATURE)
+                logger.debug(f"   🌡️ Adaptive Temperature: {temperature} (category: {category})")
+
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "temperature": config.TEMPERATURE,
+                        "temperature": temperature,
                         "maxOutputTokens": config.MAX_OUTPUT_TOKENS
                     }
                 },
@@ -647,6 +687,13 @@ Output JSON atteso:
                 try:
                     text_response = result["candidates"][0]["content"]["parts"][0]["text"]
                     data = json.loads(text_response)
+                    
+                    # 🔧 FIX: Handle case where Gemini returns a list [ {...} ]
+                    if isinstance(data, list):
+                        if len(data) > 0:
+                            data = data[0]
+                        else:
+                            data = {}
                     
                     decision = data.get('reply_needed', True)
                     language = data.get('language', 'it').lower()

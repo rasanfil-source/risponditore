@@ -33,9 +33,13 @@ class SheetsManager:
         """
         self.service = get_sheets_service(user_email)
         self.cache = TTLCache(maxsize=10, ttl=config.CACHE_DURATION_SECONDS)
+        
+        # Dedicated cache for system status (shorter TTL)
+        self.system_status_cache = TTLCache(maxsize=1, ttl=config.SYSTEM_STATUS_CACHE_TTL)
+        
         self._cache_lock = Lock()
         
-        logger.info(f"✓ Sheets service initialized (cache TTL: {config.CACHE_DURATION_SECONDS}s)")
+        logger.info(f"✓ Sheets service initialized (KB TTL: {config.CACHE_DURATION_SECONDS}s, Status TTL: {config.SYSTEM_STATUS_CACHE_TTL}s)")
     
     # ========================================================================
     # ✅ FIXED: THREAD-SAFE CACHE OPERATIONS (NO RACE CONDITION)
@@ -433,6 +437,60 @@ Dettagli: {entry['answer']}"""
             }
     
     # ========================================================================
+    # SYSTEM CONTROL (KILL-SWITCH)
+    # ========================================================================
+    
+    def is_system_enabled(self) -> bool:
+        """
+        Check if the system is enabled via the Control sheet
+        
+        Using dedicated short-lived cache (60s)
+        Values: "Acceso" = True, "Spento" (or others) = False
+        
+        Returns:
+            True if system is enabled, False otherwise
+        """
+        cache_key = 'system_status'
+        
+        # Check cache (thread-safe)
+        with self._cache_lock:
+            cached_status = self.system_status_cache.get(cache_key)
+            if cached_status is not None:
+                return cached_status
+        
+        # Cache miss - check sheet
+        try:
+            # Check Control!B2
+            result = self.service.spreadsheets().values().get(
+                spreadsheetId=config.SPREADSHEET_ID,
+                range=f'{config.CONTROL_SHEET_NAME}!B2'
+            ).execute()
+            
+            values = result.get('values', [])
+            
+            if values and len(values) > 0 and len(values[0]) > 0:
+                status_value = str(values[0][0]).strip().lower()
+                is_enabled = status_value == "acceso"
+                
+                if not is_enabled:
+                    logger.warning(f"🛑 KILL-SWITCH ACTIVE found: '{status_value}' (Expected: 'acceso')")
+            else:
+                # Empty cell or sheet problem
+                logger.warning(f"⚠️  Controllo sheet cell B2 is empty/missing. Default: STATO SISTEMA SPENTO (safety).")
+                is_enabled = False
+            
+            # Update cache
+            with self._cache_lock:
+                self.system_status_cache[cache_key] = is_enabled
+                
+            return is_enabled
+            
+        except Exception as e:
+            logger.error(f"❌ Error checking system status: {e}")
+            logger.error("   Default: STATO SISTEMA SPENTO (safety).")
+            return False
+            
+    # ========================================================================
     # VALIDATION AND HEALTH CHECK
     # ========================================================================
     
@@ -472,6 +530,10 @@ Dettagli: {entry['answer']}"""
             
             if not results['replacements_sheet_exists']:
                 results['errors'].append(f"Replacements sheet '{config.REPLACEMENTS_SHEET}' not found (non-critical)")
+            
+            results['control_sheet_exists'] = config.CONTROL_SHEET_NAME in sheet_names
+            if not results['control_sheet_exists']:
+                 results['errors'].append(f"Control sheet '{config.CONTROL_SHEET_NAME}' not found (Critical for Kill-Switch)")
             
         except Exception as e:
             results['errors'].append(f"Cannot access spreadsheet: {str(e)}")

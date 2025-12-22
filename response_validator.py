@@ -420,10 +420,29 @@ class ResponseValidator:
         score = 1.0
         hallucinations = {}
         
+        # Helper: Normalize time (9:30 -> 09:30, 9.30 -> 09:30)
+        def normalize_time(t):
+            t = t.replace('.', ':')
+            parts = t.split(':')
+            if len(parts) == 2:
+                try:
+                    return f"{int(parts[0]):02d}:{int(parts[1]):02d}"
+                except ValueError:
+                    return t
+            return t
+
+        # Helper: Normalize phone (remove non-digits)
+        def normalize_phone(p):
+            return re.sub(r'\D', '', p)
+        
         # === Check 1: Times ===
         time_pattern = r'\b\d{1,2}[:.]\d{2}\b'
-        response_times = set(re.findall(time_pattern, response))
-        kb_times = set(re.findall(time_pattern, knowledge_base))
+        response_times_raw = re.findall(time_pattern, response)
+        kb_times_raw = re.findall(time_pattern, knowledge_base)
+        
+        response_times = set(normalize_time(t) for t in response_times_raw)
+        kb_times = set(normalize_time(t) for t in kb_times_raw)
+        
         invented_times = response_times - kb_times
         
         if invented_times:
@@ -443,9 +462,18 @@ class ResponseValidator:
             hallucinations['emails'] = list(invented_emails)
         
         # === Check 3: Phone Numbers ===
-        phone_pattern = r'\b\d{2,4}[-.\s]?\d{3,4}[-.\s]?\d{3,4}\b'
-        response_phones = set(re.findall(phone_pattern, response))
-        kb_phones = set(re.findall(phone_pattern, knowledge_base))
+        # Expanded pattern for Italian numbers (landline 0x, mobile 3x)
+        # Matches: 06 12345678, 06-123..., 333 123... 
+        # Groups: prefix(0d|3dd), separator?, digits...
+        phone_pattern = r'\b(?:0\d|3\d{2})[-.\s]?\d{2,8}(?:[-.\s]?\d{2,4})*\b'
+        
+        response_phones_raw = re.findall(phone_pattern, response)
+        kb_phones_raw = re.findall(phone_pattern, knowledge_base)
+        
+        # Normalize and filter short matches (avoiding incidental number matches)
+        response_phones = set(normalize_phone(p) for p in response_phones_raw if len(normalize_phone(p)) >= 6)
+        kb_phones = set(normalize_phone(p) for p in kb_phones_raw if len(normalize_phone(p)) >= 6)
+        
         invented_phones = response_phones - kb_phones
         
         if invented_phones:

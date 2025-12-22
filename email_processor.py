@@ -20,6 +20,7 @@ from utils import (
 )
 from config import FORCE_REPLY_KEYWORDS
 import config
+from memory_service import ConversationMemory
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +66,10 @@ class EmailProcessor:
         logger.info("✓ Classifier initialized")
         
         self.validator = ResponseValidator()
+        self.validator = ResponseValidator()
         logger.info("✓ Response validator initialized")
+        
+        self.memory = ConversationMemory()
         
         # Load resources
         self._load_resources()
@@ -153,6 +157,15 @@ class EmailProcessor:
         logger.info(f"\n{'='*60}")
         logger.info(f"🚀 Starting email processing run")
         logger.info(f"{'='*60}\n")
+        
+        # 🛑 SYSTEM KILL-SWITCH CHECK
+        if not self.sheets.is_system_enabled():
+            logger.warning(f"🛑 STATO SISTEMA: SPENTO via Controllo sheet")
+            logger.warning(f"   Skipping all processing. To enable, set 'Acceso' in Controllo!B2")
+            return {
+                'status': 'disabled', 
+                'message': 'Stato Sistema: Spento via Controllo sheet'
+            }
         
         try:
             # Get or create label
@@ -305,6 +318,17 @@ class EmailProcessor:
 
             # === STAGE 2: NLP Classification ===
             logger.info(f"   🧠 Stage 2: NLP classification...")
+            
+            # 🧠 LIGHT MEMORY CHECK
+            # Retrieve memory for this thread
+            thread_memory = self.memory.get_memory(thread['id'])
+            memory_context = {}
+            
+            if thread_memory:
+                logger.info(f"   🧠 Memory found: Lang={thread_memory.get('language')}, Category={thread_memory.get('category')}")
+                # Pass key info to context
+                memory_context = thread_memory
+            
             is_reply = message_details['subject'].lower().startswith(('re:', 'r:'))
 
             classification = self.classifier.classify_email(
@@ -333,7 +357,13 @@ class EmailProcessor:
             # === STAGE 2c: Gemini Lightweight Check ===
             detected_language_override = None
             
-            if config.ENABLE_GEMINI_QUICK_CHECK:
+            # 🧠 USE MEMORY FOR LANGUAGE IF AVAILABLE
+            if thread_memory and thread_memory.get('language'):
+                detected_language_override = thread_memory.get('language')
+                logger.info(f"   🧠 Using cached language from memory: {detected_language_override}")
+            
+            # Only run detection if not in memory
+            elif config.ENABLE_GEMINI_QUICK_CHECK:
                 logger.info(f"   🤖 Stage 2c: Gemini lightweight check...")
                 
                 try:
@@ -398,7 +428,7 @@ class EmailProcessor:
                 summarized_history,
                 category=classification.get('category'),
                 sub_intents=classification.get('sub_intents', {}),  # ✅ NEW: Pass emotional nuances
-                detected_language=detected_language_override  # ✅ NEW: Pass detected language
+                memory_context=memory_context  # 🧠 PASS MEMORY CONTEXT
             )
 
             # Check if response was generated
@@ -417,15 +447,30 @@ class EmailProcessor:
             # === STAGE 5: ADVANCED RESPONSE VALIDATION ===
             logger.info(f"   🔍 Stage 5: Advanced response validation...")
             
-            # Detect language for validation
-            # Use override if available to avoid re-detection mismatch
-            if detected_language_override:
-                detected_language = detected_language_override
+            # Detect language for validation (Hybrid Logic)
+            specialist_lang = self.gemini._detect_email_language(
+                message_details['body'], 
+                message_details['subject']
+            )
+            
+            generalist_lang = detected_language_override
+            
+            # THE HYBRID DECISION RULE:
+            if specialist_lang in ['es', 'en']:
+                # Specialist is high-confidence for ES/EN -> Trust it
+                detected_language = specialist_lang
+                logger.info(f"   🌍 Language Decision: TRUST SPECIALIST ({detected_language})")
+            
+            elif generalist_lang and generalist_lang not in ['it', 'en', 'es']:
+                # Specialist says IT (default), but AI found something exotic (FR, PT, DE) -> Trust AI
+                detected_language = generalist_lang
+                logger.info(f"   🌍 Language Decision: TRUST AI for Exotic Lang ({detected_language})")
+                
             else:
-                detected_language = self.gemini._detect_email_language(
-                    message_details['body'], 
-                    message_details['subject']
-                )
+                # Default to Specialist (usually 'it' or agreed 'en/es')
+                detected_language = specialist_lang
+                logger.info(f"   🌍 Language Decision: Standard ({detected_language})")
+
             
             # Perform comprehensive validation
             validation_result = self.validator.validate_response(
@@ -508,6 +553,24 @@ class EmailProcessor:
 
             # Mark as processed
             self.gmail.add_label_to_thread(thread['id'], label_name)
+            
+            # 🧠 UPDATE MEMORY
+            try:
+                # Determine what info was provided (heuristic based on categorization)
+                # In a more advanced version, we could ask Gemini what new info it provided
+                new_info = []
+                if classification.get('category') == 'information':
+                    new_info.append('general_info')
+                
+                memory_update = {
+                    "language": detected_language,
+                    "category": classification.get('category'),
+                    "last_interaction": "ai_reply",
+                    # "provided_info": ... (would need extraction logic)
+                }
+                self.memory.update_memory(thread['id'], memory_update)
+            except Exception as mem_err:
+                logger.warning(f"   ⚠️ Failed to update memory: {mem_err}")
             
             return {
                 'status': 'replied',

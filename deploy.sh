@@ -7,5 +7,6 @@ gcloud functions deploy process-parish-emails-pubsub \
   --trigger-topic=gmail-notifications \
   --memory=512Mi \
   --timeout=300s \
+  --max-instances=1 \
   --env-vars-file=.env.yaml \
   --service-account=parish-secretary-sa@ordinal-gear-472720-h5.iam.gserviceaccount.com

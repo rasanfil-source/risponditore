@@ -26,7 +26,7 @@ class TerritoryValidator:
         'via carlo dolci': {'tutti': True},
         'via cesare fracassini': {'dispari': [1, None]},
         'via cimabue': {'tutti': True},
-        'via domenico alberto azuni': {'pari': [1, None]},
+        'via domenico alberto azuni': {'dispari': [1, None]},
         'piazzale don giovanni minzoni': {'tutti': True},
         'via enrico chiaradia': {'tutti': True},
         'via enrico pessina': {'tutti': True},
@@ -49,7 +49,7 @@ class TerritoryValidator:
         'lungotevere delle navi': {'tutti': True},
         'via omero': {'dispari': [1, None]},
         'via paolo bartolini': {'tutti': True},
-        'salita dei parioli': {'pari': [1, None]},
+        'salita dei parioli': {'dispari': [1, None]},
         'via pietro da cortona': {'tutti': True},
         'via pietro paolo rubens': {'pari': [1, None]},
         'via pomarancio': {'tutti': True},
@@ -230,7 +230,7 @@ def test_territory_validator():
     test_cases = [
         # Positive cases (should detect)
         ("Abito in via Rossi 10", "via Rossi", 10),
-        ("abito a via delle Belle Arti 5", "viale delle Belle Arti", 5),
+        ("abito a via delle Belle Arti 5", "via delle Belle Arti", 5),
         ("Abito al viale Tiziano 20", "viale Tiziano", 20),
         ("Il mio indirizzo è via Flaminia 150", "via Flaminia", 150),
         ("Vivo in piazza Marina n. 30", "piazza Marina", 30),

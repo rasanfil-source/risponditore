@@ -30,6 +30,7 @@ class PromptContext:
     salutation: str
     closing: str
     sub_intents: Dict = field(default_factory=dict)
+    memory_context: Dict = field(default_factory=dict)
 
 
 class PromptTemplate:
@@ -95,20 +96,22 @@ class SystemRoleTemplate(PromptTemplate):
     """System role definition with human warmth"""
     
     def render(self, context: PromptContext) -> str:
-        return """Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.
+        return """Tu sei una segreteria parrocchiale intelligente con expertise su:
+- Liturgia cattolica e sacramenti
+- Procedure amministrative canoniche standard
+- Prassi ecclesiastiche comuni
+- Comunicazione pastorale
 
-🎯 IL TUO STILE:
-• Professionale ma caloroso
-• Conciso ma completo
-• Istituzionale (usa "restiamo", "siamo lieti") ma umano
-• Empatico verso le esigenze delle persone
+Hai due fonti di conoscenza:
+1. **Conoscenza della Parrocchia (OBBLIGATORIA):** Informazioni specifiche fornite nella KB
+2. **Conoscenza Generale (CONDIZIONALE):** La tua expertise come rappresentante della Chiesa
 
-⚠️ IMPORTANTE:
-- Se l'interlocutore usa varianti ortografiche (es. "peregrinaggio" invece di "pellegrinaggio"), 
-  cerca l'informazione nella knowledge base usando termini simili
-- NON usare MAI placeholder come [...] o <...> nella risposta
+Usa entrambe intelligentemente:
+- Se la domanda è su prassi standard della Chiesa -> usa la tua expertise (Prassi Cattoliche Standard)
+- Se è specifica della Parrocchia (orari, contatti, procedure locali) -> usa SOLO la KB
+- Qualifica sempre il livello di confidenza: "è prassi comune", "a livello canonico", "dalla nostra KB"
 
-NON sei un chatbot freddo - sei una persona reale della segreteria che vuole aiutare."""
+Evita di sembrare superficiale con risposte generiche quando potresti essere risolutivo con la tua conoscenza generale."""
 
 
 class FormattingGuidelinesTemplate(PromptTemplate):
@@ -435,10 +438,25 @@ class KnowledgeBaseTemplate(PromptTemplate):
     """Knowledge base section"""
     
     def render(self, context: PromptContext) -> str:
-        return f"""**INFORMAZIONI DI RIFERIMENTO:**
+        return f"""**INFORMAZIONI DI RIFERIMENTO PARROCCHIA:**
 {context.knowledge_base}
 
-**REGOLA FONDAMENTALE:** Usa SOLO informazioni presenti sopra. NON inventare."""
+**COME USARE QUESTE INFORMAZIONI:**
+1. Se la risposta è nella KB -> usala esattamente
+2. Se la domanda riguarda procedure cattoliche standard (es. sacramenti, liturgia, prassi ecclesiali):
+   - Puoi usare la tua conoscenza del cattolicesimo per fornire risposta consapevole
+   - Qualifica sempre: "È prassi comune nella Chiesa che..." oppure "A livello canonico..."
+   - NON inventare dettagli specifici della parrocchia (orari, contatti, nomi sacerdoti)
+3. Se è una domanda completamente al di fuori della tua competenza -> rimanda alla segreteria
+
+**ESEMPIO PERMESSO:**
+Domanda: "I secondi nomi sul certificato di battesimo sono un problema?"
+Risposta corretta: "È prassi comune che il certificato riporti nomi aggiuntivi. Questi non causano problemi amministrativi."
+
+**ESEMPIO VIETATO:**
+Domanda: "Quali sono gli orari della parrocchia sabato?"
+Risposta scorretta se mancante da KB: "Probabilmente sarà X..." -> SBAGLIATO!
+Risposta corretta: "Rimando alla KB. Se non presente, rimanda segreteria." """
 
 
 class SeasonalContextTemplate(PromptTemplate):
@@ -471,6 +489,41 @@ class CategoryHintTemplate(PromptTemplate):
             return ""
         
         return f"**CATEGORIA IDENTIFICATA:**\n{self.HINTS[context.category]}\n"
+
+
+class ConversationContextTemplate(PromptTemplate):
+    """
+    🧠 LIGHT MEMORY CONTEXT
+    Injects established context (language, provided info) to prevent repetition
+    """
+    
+    def render(self, context: PromptContext) -> str:
+        if not context.memory_context:
+            return ""
+            
+        memory = context.memory_context
+        sections = []
+        
+        # established language
+        if memory.get('language'):
+            sections.append(f"• LINGUA STABILITA: {memory.get('language').upper()}")
+            
+        # provided info
+        if memory.get('provided_info'):
+            info_list = ", ".join(memory.get('provided_info'))
+            sections.append(f"• INFORMAZIONI GIÀ FORNITE: {info_list}")
+            sections.append("⚠️ NON RIPETERE queste informazioni se non richieste esplicitamente.")
+            
+        if not sections:
+            return ""
+            
+        return f"""
+═══════════════════════════════════════════════════════════════════════════
+🧠 CONTESTO MEMORIA (CONVERSAZIONE IN CORSO)
+═══════════════════════════════════════════════════════════════════════════
+{chr(10).join(sections)}
+═══════════════════════════════════════════════════════════════════════════
+"""
 
 
 class ConversationHistoryTemplate(PromptTemplate):
@@ -588,17 +641,77 @@ class ResponseGuidelinesTemplate(PromptTemplate):
    ❌ URL ripetuto: [tinyurl.com/x](https://tinyurl.com/x) → SBAGLIATO
    ✅ Descrizione: Iscrizione: https://tinyurl.com/x → GIUSTO"""
         
-        return f"""**LINEE GUIDA RISPOSTA:**
+    def render(self, context: PromptContext) -> str:
+        # Common layout parts
+        if context.detected_language == 'en':
+            intro = "**RESPONSE GUIDELINES:**"
+            critical_errors = """5. **🚨 CRITICAL ERRORS (Avoid):**
+   ❌ Caps after comma ("Hello, We are")
+   ✅ Lowercase after comma ("Hello, we are")
+   ❌ Repeated URL ([url](url))
+   ✅ Description link ([form](url))"""
+        elif context.detected_language == 'es':
+            intro = "**DIRECTRICES DE RESPUESTA:**"
+            critical_errors = """5. **🚨 ERRORES CRÍTICOS (Evitar):**
+   ❌ Mayúscula tras coma ("Hola, Estamos")
+   ✅ Minúscula tras coma ("Hola, estamos")
+   ❌ URL repetida ([url](url))
+   ✅ Enlace descriptivo ([formulario](url))"""
+        else:
+            intro = "**LINEE GUIDA RISPOSTA:**"
+            critical_errors = """5. **🚨 ERRORI CRITICI (Evitare):**
+   ❌ Maiuscola dopo virgola ("Ciao, Siamo")
+   ✅ Minuscola dopo virgola ("Ciao, siamo")
+   ❌ URL ripetuto ([url](url))
+   ✅ Link descrittivo ([modulo](url))"""
+        
+        # Reasoning Mode Logic
+        reasoning_logic = """
+**MODALITÀ DI RAGIONAMENTO:**
+✅ **MODO RISOLUTIVO** (Per domande su prassi cattoliche generali):
+   - Usa la tua conoscenza del cattolicesimo
+   - Rispondi con competenza a dubbi su sacramenti, liturgia, consuetudini
+   - Esempio: "Come funzionano i nomi al battesimo?" -> Spiega la prassi comune
 
-{format_section}
+🔐 **MODO CONSERVATIVO** (Per info specifiche parrocchia):
+   - Orari, contatti, documenti specifici, procedure locali
+   - SOLO dalla Knowledge Base
+   - Se manca -> non inventare, rimanda alla segreteria
+"""
 
-{content_section}
+        if context.detected_language == 'en':
+             reasoning_logic = """
+**REASONING MODE:**
+✅ **RESOLUTIVE MODE** (For general Catholic practices):
+   - Use your general Catholic knowledge
+   - Answer standard questions about sacraments/liturgy confidently
 
-3. **Orari:** Mostra SOLO orari del periodo corrente ({context.current_season})
+🔐 **CONSERVATIVE MODE** (For specific parish info):
+   - Times, contacts, local procedures
+   - ONLY from Knowledge Base
+"""
+        elif context.detected_language == 'es':
+             reasoning_logic = """
+**MODO DE RAZONAMIENTO:**
+✅ **MODO RESOLUTIVO** (Para prácticas católicas generales):
+    - Usa tu conocimiento católico general
+    - Responde dudas sobre sacramentos y liturgia con confianza
 
-{language_reminder}
+🔐 **MODO CONSERVADOR** (Para info específica de la parroquia):
+    - Horarios, contactos, procedimientos locales
+    - SOLO desde la Base de Conocimientos
+"""
 
-{critical_section}"""
+        return f"""{intro}
+
+{reasoning_logic}
+
+1. **Format:** {context.salutation} ... {context.closing}
+2. **Content:** Be precise. Use formatting for 3+ items.
+3. **Hours:** Show ONLY {context.current_season} hours.
+4. **Language:** Respond in {context.detected_language.upper()}
+
+{critical_errors}"""
 
 
 class SpecialCasesTemplate(PromptTemplate):
@@ -664,6 +777,7 @@ class PromptEngine:
             CriticalErrorsTemplate(),  # 🆕 Show critical errors FIRST
             SystemRoleTemplate(),
             LanguageInstructionTemplate(),
+            ConversationContextTemplate(),  # 🧠 NEW: Memory context
             KnowledgeBaseTemplate(),
             TerritoryVerificationTemplate(),
             SeasonalContextTemplate(),
@@ -696,7 +810,8 @@ class PromptEngine:
         now: datetime,
         salutation: str,
         closing: str,
-        sub_intents: Dict = None
+        sub_intents: Dict = None,
+        memory_context: Dict = None
     ) -> str:
         """Build optimized prompt with critical rules reinforcement"""
         context = PromptContext(
@@ -712,7 +827,8 @@ class PromptEngine:
             now=now,
             salutation=salutation,
             closing=closing,
-            sub_intents=sub_intents or {}
+            sub_intents=sub_intents or {},
+            memory_context=memory_context or {}
         )
         
         # Render all templates

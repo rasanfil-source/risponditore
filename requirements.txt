@@ -5,6 +5,7 @@ google-auth-oauthlib==1.2.0
 google-api-python-client==2.140.0
 google-cloud-secret-manager==2.20.0
 google-cloud-pubsub==2.18.4
+google-cloud-firestore>=2.11.1
 
 # Gemini/AI
 requests==2.32.3
@@ -24,6 +25,9 @@ cloudevents>=1.10.0
 # Text processing
 beautifulsoup4==4.12.3
 html2text==2024.2.26
+openpyxl==3.1.5
 
 # 🔧 NEW: Fallback dependencies
 pytz>=2024.1  # Timezone fallback (if not already present)
+# Test dependencies
+pytest==8.3.4

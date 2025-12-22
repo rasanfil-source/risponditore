@@ -14,7 +14,12 @@ SERVICE_ACCOUNT_FILE = os.environ.get('SERVICE_ACCOUNT_FILE', 'service-account-k
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID', '')
 SHEET_NAME = os.environ.get('SHEET_NAME', 'Istruzioni')
+KNOWLEDGE_BASE_FILE = 'KBDOTTRINALE.xlsx'
+SHEET_LITE = 'AI_CORE_LITE'
+SHEET_CORE = 'AI_CORE'
+SHEET_DOCTRINE = 'Dottrina'
 REPLACEMENTS_SHEET = os.environ.get('REPLACEMENTS_SHEET', 'Sostituzioni')
+CONTROL_SHEET_NAME = os.environ.get('CONTROL_SHEET_NAME', 'Controllo')
 
 # ============ Pub/Sub Configuration ============
 PUBSUB_TOPIC = os.environ.get('PUBSUB_TOPIC', 'gmail-notifications')
@@ -30,8 +35,20 @@ MODEL_NAME = 'gemini-2.0-flash'
 TEMPERATURE = 0.35
 MAX_OUTPUT_TOKENS = 800
 
+# ============ Gemini Temperature by Category ============
+# Adjusts creativity based on the topic safety requirements
+TEMPERATURE_BY_CATEGORY = {
+    'general_info': 0.3,      # General info -> balanced
+    'ecclesiology': 0.3,      # Catholic practices -> reasoning enabled
+    'sacrament': 0.2,         # Sacraments -> conservative
+    'appointment': 0.15,      # Appointments -> strict
+    'contact': 0.1,           # Contacts -> ultra-precise (KB only)
+    'default': 0.35           # Fallback
+}
+
 # ============ Cache Configuration ============
 CACHE_DURATION_SECONDS = 3600  # 1 hour
+SYSTEM_STATUS_CACHE_TTL = 60   # 60 seconds for kill-switch
 
 # ============ CRITICAL NEW FLAGS ============
 # Control duplicate auth checks
@@ -260,19 +277,19 @@ def validate_config():
     
     # DRY_RUN warning
     if DRY_RUN:
-        warnings.append("⚠️  DRY_RUN MODE ACTIVE - Emails will NOT be sent!")
+        warnings.append("DRY_RUN MODE ACTIVE - Emails will NOT be sent!")
     
     # ✅ NEW: Validation warnings
     if not VALIDATION_ENABLED:
-        warnings.append("⚠️  Response validation is DISABLED - Quality checks will be skipped!")
+        warnings.append("Response validation is DISABLED - Quality checks will be skipped!")
     
     if VALIDATION_STRICT_MODE:
-        warnings.append(f"ℹ️  Validation strict mode enabled (min score: 0.8 instead of {VALIDATION_MIN_SCORE})")
+        warnings.append(f"Validation strict mode enabled (min score: 0.8 instead of {VALIDATION_MIN_SCORE})")
     
     # === STAMPA RISULTATI ===
     
     if errors:
-        print("❌ ERRORI DI CONFIGURAZIONE CRITICI:")
+        print("ERROR: Critical configuration errors:")
         for i, error in enumerate(errors, 1):
             print(f"   {i}. {error}")
         print()
@@ -282,16 +299,16 @@ def validate_config():
         )
     
     if warnings:
-        print("⚠️  WARNING DI CONFIGURAZIONE:")
+        print("WARNING DI CONFIGURAZIONE:")
         for i, warning in enumerate(warnings, 1):
             print(f"   {i}. {warning}")
         print()
     
     # === STAMPA CONFIGURAZIONE ATTIVA ===
     
-    print("✓ Configurazione validata con successo")
+    print("Configuration validated successfully")
     print()
-    print("📋 CONFIGURAZIONE ATTIVA:")
+    print("Active configuration:")
     print(f"   Email monitorata: {IMPERSONATE_EMAIL}")
     print(f"   Spreadsheet ID: {SPREADSHEET_ID[:20]}...")
     print(f"   Gemini Model: {MODEL_NAME}")
@@ -299,12 +316,12 @@ def validate_config():
     print(f"   Label name: {LABEL_NAME}")
     print(f"   Error label: {ERROR_LABEL_NAME}")
     print(f"   Cache duration: {CACHE_DURATION_SECONDS}s")
-    print(f"   DRY_RUN: {'YES ⚠️' if DRY_RUN else 'NO'}")
+    print(f"   DRY_RUN: {'YES (warning)' if DRY_RUN else 'NO'}")
     print(f"   Auth per-invocation: {'YES' if VERIFY_AUTH_ON_EACH_INVOCATION else 'NO (cold start only)'}")
     print(f"   Max KB size: {MAX_KNOWLEDGE_BASE_CHARS} chars")
     print(f"   Max conversation: {MAX_CONVERSATION_CHARS} chars")
     # ✅ NEW: Validation config output
-    print(f"   Validation enabled: {'YES' if VALIDATION_ENABLED else 'NO ⚠️'}")
+    print(f"   Validation enabled: {'YES' if VALIDATION_ENABLED else 'NO'}")
     print(f"   Validation min score: {VALIDATION_MIN_SCORE}")
     print(f"   Validation strict mode: {'YES' if VALIDATION_STRICT_MODE else 'NO'}")
     print()
@@ -353,12 +370,10 @@ def get_config_summary() -> dict:
 try:
     validate_config()
 except ValueError as e:
-    # In produzione, vogliamo che l'errore blocchi l'avvio
-    # Durante i test, potrebbe essere necessario disabilitare questa validazione
-    print(f"⚠️  Config validation error: {e}")
+    # In produzione, l'errore blocca l'avvio. Durante i test, lo ignoriamo.
+    print(f"Config validation error: {e}")
     print("   Se stai testando localmente, assicurati di aver configurato le variabili d'ambiente.")
-    # Non solleva l'eccezione durante l'import per permettere test locali
-    # raise
+    # Do not re-raise to allow imports in test environment.
 
     
 # ═══════════════════════════════════════════════════════════════
