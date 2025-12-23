@@ -5,8 +5,11 @@ Processes Gmail push notifications and extracts message data
 
 import base64
 import json
+import logging
 from typing import Dict, Optional
 import config
+
+logger = logging.getLogger(__name__)
 
 class PubSubHandler:
     """
@@ -30,11 +33,11 @@ class PubSubHandler:
         try:
             # CloudEvents Gen2 format: event.data.message.data
             if 'message' not in event:
-                print("No 'message' in Pub/Sub event")
+                logger.warning("No 'message' in Pub/Sub event")
                 return None
             
             if 'data' not in event['message']:
-                print("No 'data' in message")
+                logger.warning("No 'data' in message")
                 return None
             
             # Decode base64 data
@@ -48,7 +51,7 @@ class PubSubHandler:
             # }
             
             if 'emailAddress' not in notification:
-                print("Invalid Gmail notification format")
+                logger.warning("Invalid Gmail notification format")
                 return None
 
             # Prefer publishTime from Pub/Sub envelope when present
@@ -62,7 +65,7 @@ class PubSubHandler:
             }
             
         except Exception as e:
-            print(f"Error parsing Pub/Sub message: {e}")
+            logger.error(f"Error parsing Pub/Sub message: {e}")
             return None
     
     def validate_notification(self, notification_data: Dict) -> bool:
@@ -83,7 +86,7 @@ class PubSubHandler:
         notification_email = notification_data.get('email_address', '').lower()
         
         if notification_email != monitored_email:
-            print(f"Notification for different account: {notification_email} != {monitored_email}")
+            logger.warning(f"Notification for different account: {notification_email} != {monitored_email}")
             return False
         
         return True

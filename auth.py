@@ -7,9 +7,12 @@ from google.oauth2 import service_account
 from googleapiclient.discovery import build
 import json
 import os
+import logging
 from typing import Optional
 from google.cloud import secretmanager
 import config
+
+logger = logging.getLogger(__name__)
 
 def get_service_account_credentials():
     """
@@ -26,7 +29,7 @@ def get_service_account_credentials():
             secret_value = response.payload.data.decode("UTF-8")
             return json.loads(secret_value)
         except Exception as e:
-            print(f"Error loading from Secret Manager: {e}")
+            logger.warning(f"Error loading from Secret Manager: {e}")
             # Fall back to file
     
     # Load from file
@@ -108,15 +111,15 @@ def verify_authentication():
     try:
         gmail_service = get_gmail_service()
         profile = gmail_service.users().getProfile(userId='me').execute()
-        print(f"Successfully authenticated as: {profile['emailAddress']}")
+        logger.info(f"Successfully authenticated as: {profile['emailAddress']}")
         
         sheets_service = get_sheets_service()
         spreadsheet = sheets_service.spreadsheets().get(
             spreadsheetId=config.SPREADSHEET_ID
         ).execute()
-        print(f"Successfully accessed spreadsheet: {spreadsheet['properties']['title']}")
+        logger.info(f"Successfully accessed spreadsheet: {spreadsheet['properties']['title']}")
         
         return True
     except Exception as e:
-        print(f"Authentication verification failed: {e}")
+        logger.error(f"Authentication verification failed: {e}")
         return False

@@ -16,6 +16,7 @@ import logging
 from prompt_engine import PromptEngine, PromptContext
 from knowledge_engine import KnowledgeEngine
 from territory_validator import TerritoryValidator
+from request_classifier import RequestTypeClassifier
 import re
 
 logger = logging.getLogger(__name__)
@@ -56,10 +57,16 @@ def retry_on_failure(max_retries=3, delay=2, backoff_factor=2):
 
 
 class GeminiService:
-    """Service for Gemini AI API interactions - CLEANED VERSION"""
+    """Service for Gemini AI API interactions - with conditional KB injection"""
 
-    def __init__(self):
-        """Initialize Gemini service"""
+    def __init__(self, sheets_manager=None):
+        """
+        Initialize Gemini service
+        
+        Args:
+            sheets_manager: Optional SheetsManager for loading knowledge layers.
+                           Required for doctrinal KB injection.
+        """
         self.api_key = config.GEMINI_API_KEY
         self.base_url = f"https://generativelanguage.googleapis.com/v1beta/models/{config.MODEL_NAME}:generateContent"
 
@@ -69,10 +76,11 @@ class GeminiService:
         if len(self.api_key) < 20:
             logger.warning("⚠️  GEMINI_API_KEY seems too short")
 
-        # ✅ FIXED: Initialize only once
+        # Initialize components
         self.prompt_engine = PromptEngine()
-        self.knowledge_engine = KnowledgeEngine()
+        self.knowledge_engine = KnowledgeEngine(sheets_manager)  # Pass sheets_manager
         self.territory_validator = TerritoryValidator()
+        self.request_classifier = RequestTypeClassifier()  # NEW: Request type classification
 
         logger.info(f"✓ Gemini service initialized with model: {config.MODEL_NAME}")
 
@@ -309,6 +317,51 @@ class GeminiService:
 
         return greeting, closing
 
+    def _get_request_type_hint(self, request_type: str) -> str:
+        """
+        Generate hint for AI based on classified request type
+        
+        Args:
+            request_type: 'technical', 'pastoral', or 'mixed'
+            
+        Returns:
+            Hint string to guide response style
+        """
+        if request_type == 'technical':
+            return """
+🎯 TIPO RICHIESTA RILEVATO: TECNICA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Linee guida per la risposta:
+- Rispondi in modo CHIARO e BREVE
+- Fornisci l'informazione richiesta direttamente
+- Non eccedere in empatia o moralizzazione
+- Evita lunghe introduzioni emotive
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        elif request_type == 'pastoral':
+            return """
+🎯 TIPO RICHIESTA RILEVATO: PASTORALE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Linee guida per la risposta:
+- Rispondi in modo ACCOGLIENTE e PERSONALE
+- Riconosci la situazione/sentimento espresso
+- Accompagna la persona, non giudicare
+- Non fermarti solo alla norma
+- Invita al dialogo personale se opportuno
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+        else:  # mixed
+            return """
+🎯 TIPO RICHIESTA RILEVATO: MISTA
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+Linee guida per la risposta:
+- Rispondi TECNICAMENTE (chiarezza) ma con TONO pastorale
+- Non fermarti alla sola regola
+- Non scivolare nel permissivismo
+- Bilancia informazione e accoglienza
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+"""
+
     @retry_on_failure(max_retries=3, delay=2, backoff_factor=2)
     def generate_response(
         self,
@@ -389,22 +442,41 @@ Dettaglio: {verification['reason']}
             sub_intents=sub_intents or {},  # ✅ NEW
             memory_context=memory_context  # 🧠 PASS MEMORY
         )
-        # Prepare internal guidance sections (not exposed to user)
+        # ═══════════════════════════════════════════════════════════════
+        # CONDITIONAL KB INJECTION (Based on Request Type Classification)
+        # ═══════════════════════════════════════════════════════════════
+        
+        # Classify request type (Technical vs Pastoral vs Mixed)
+        request_type_result = self.request_classifier.classify(
+            email_subject, email_content
+        )
+        
         guidelines = []
-        # Level 0 – always include tone guidelines
+        
+        # Level 0 – AI-Core Lite: ALWAYS injected (tone, limits, response type)
         lite = self.knowledge_engine.get_tone_guidelines()
         if lite:
+            # Add request type hint to guide response style
+            type_hint = self._get_request_type_hint(request_type_result['type'])
+            guidelines.append(type_hint)
             guidelines.append(lite)
-        # Level 1 – pastoral criteria for sensitive categories
-        if category in {"moral", "sacramental", "matrimonial", "pastoral"}:
+            logger.info(f"   📋 AI-Core Lite injected ({len(lite)} chars)")
+        
+        # Level 1 – AI-Core: only when discernment needed
+        if request_type_result['needs_discernment']:
             core = self.knowledge_engine.get_pastoral_guidelines()
             if core:
                 guidelines.append(core)
-        # Level 2 – explicit doctrinal request detection
-        if "spiegazione" in email_content.lower() or "perché" in email_content.lower():
+                logger.info(f"   📋 AI-Core (discernment) injected ({len(core)} chars)")
+        
+        # Level 2 – Dottrina: only for explicit doctrinal requests
+        if request_type_result['needs_doctrine']:
             doctrine = self.knowledge_engine.get_doctrinal_content()
             if doctrine:
                 guidelines.append(doctrine)
+                logger.info(f"   📋 Dottrina injected ({len(doctrine)} chars)")
+        
+        # Inject as internal prefix (never shown to user)
         if guidelines:
             internal_section = "\n---\n" + "\n\n".join(guidelines) + "\n---\n"
             prompt = internal_section + prompt
@@ -418,20 +490,12 @@ Dettaglio: {verification['reason']}
             logger.info(f"🤖 Calling Gemini API for: {sender_email}")
             logger.debug(f"   Prompt size: {len(prompt)} chars")
 
-            # Determine temperature based on category
-            temperature = config.TEMPERATURE
-            if category and hasattr(config, 'TEMPERATURE_BY_CATEGORY'):
-                # Normalize category to match config keys if needed
-                temp_key = category.lower() if category else 'default'
-                temperature = config.TEMPERATURE_BY_CATEGORY.get(temp_key, config.TEMPERATURE)
-                logger.debug(f"   🌡️ Adaptive Temperature: {temperature} (category: {category})")
-
             response = requests.post(
                 f"{self.base_url}?key={self.api_key}",
                 json={
                     "contents": [{"parts": [{"text": prompt}]}],
                     "generationConfig": {
-                        "temperature": temperature,
+                        "temperature": config.TEMPERATURE,
                         "maxOutputTokens": config.MAX_OUTPUT_TOKENS
                     }
                 },

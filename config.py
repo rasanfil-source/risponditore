@@ -14,10 +14,6 @@ SERVICE_ACCOUNT_FILE = os.environ.get('SERVICE_ACCOUNT_FILE', 'service-account-k
 GEMINI_API_KEY = os.environ.get('GEMINI_API_KEY', '')
 SPREADSHEET_ID = os.environ.get('SPREADSHEET_ID', '')
 SHEET_NAME = os.environ.get('SHEET_NAME', 'Istruzioni')
-KNOWLEDGE_BASE_FILE = 'KBDOTTRINALE.xlsx'
-SHEET_LITE = 'AI_CORE_LITE'
-SHEET_CORE = 'AI_CORE'
-SHEET_DOCTRINE = 'Dottrina'
 REPLACEMENTS_SHEET = os.environ.get('REPLACEMENTS_SHEET', 'Sostituzioni')
 CONTROL_SHEET_NAME = os.environ.get('CONTROL_SHEET_NAME', 'Controllo')
 
@@ -34,17 +30,6 @@ MAX_EMAILS_PER_RUN = int(os.environ.get('MAX_EMAILS_PER_RUN', '10'))
 MODEL_NAME = 'gemini-2.0-flash'
 TEMPERATURE = 0.35
 MAX_OUTPUT_TOKENS = 800
-
-# ============ Gemini Temperature by Category ============
-# Adjusts creativity based on the topic safety requirements
-TEMPERATURE_BY_CATEGORY = {
-    'general_info': 0.3,      # General info -> balanced
-    'ecclesiology': 0.3,      # Catholic practices -> reasoning enabled
-    'sacrament': 0.2,         # Sacraments -> conservative
-    'appointment': 0.15,      # Appointments -> strict
-    'contact': 0.1,           # Contacts -> ultra-precise (KB only)
-    'default': 0.35           # Fallback
-}
 
 # ============ Cache Configuration ============
 CACHE_DURATION_SECONDS = 3600  # 1 hour
@@ -165,27 +150,23 @@ IGNORE_SENDERS = [
 IGNORE_DOMAINS = IGNORE_SENDERS
 
 IGNORE_KEYWORDS = [
+    # Newsletter/unsubscribe patterns (clear commercial indicators)
     'newsletter',
     'unsubscribe',
-    'disiscriviti',          # Italiano ← NUOVO
-    'disiscrizione',         # Italiano ← NUOVO
-    'annulla iscrizione',    # Italiano ← NUOVO
-    'annulla l\'iscrizione', # Italiano con apostrofo ← NUOVO
+    'disiscriviti',
+    'disiscrizione',
+    'annulla iscrizione',
+    'annulla l\'iscrizione',
     'gestisci la tua iscrizione',
-    'gestisci le tue preferenze',  # ← NUOVO (vedi email Fabrick)
-    'aggiorna le tue preferenze',  
+    'gestisci le tue preferenze',
+    'aggiorna le tue preferenze',
     'cancella iscrizione',
     'mailing list',
     'inviato con mailup',
     'messaggio inviato con',
-    'bollette',
-    'avvisi di pagamento',
-    'ricevuta',
-    'bonifico',
-    'spedizione',
+    'non rispondere a questo messaggio',
+    # Commercial/transactional patterns
     'avviso di sicurezza',
-    'necrologio',
-    'non rispondere a questo messaggio'
 ]
 
 # ============ Simple Acknowledgment Patterns ============

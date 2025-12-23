@@ -1,11 +1,14 @@
 """
 NLP Classification module for email filtering and categorization
-🔧 SIMPLIFIED: Minimal filtering, delegates complex decisions to Gemini
+Simplified: Minimal filtering, delegates complex decisions to Gemini
 """
 
 import re
+import logging
 from typing import Dict, Optional
 import config
+
+logger = logging.getLogger(__name__)
 
 class EmailClassifier:
     """
@@ -22,7 +25,7 @@ class EmailClassifier:
 
     def __init__(self):
         """Initialize classifier with minimal patterns"""
-        print("🧠 Initializing Simplified EmailClassifier...")
+        logger.info("🧠 Initializing Simplified EmailClassifier...")
         
         # ULTRA-RESTRICTIVE: Only 3-word max acknowledgments
         self.ultra_simple_ack_patterns = [
@@ -110,9 +113,9 @@ class EmailClassifier:
             ]
         }
         
-        print(f"✓ Simplified Classifier initialized")
-        print(f"   Philosophy: Filter only obvious cases, delegate rest to Gemini")
-        print(f"   Sub-intents: {len(self.sub_intent_keywords)} emotional nuances detected")
+        logger.info(f"✓ Simplified Classifier initialized")
+        logger.debug(f"   Philosophy: Filter only obvious cases, delegate rest to Gemini")
+        logger.debug(f"   Sub-intents: {len(self.sub_intent_keywords)} emotional nuances detected")
 
     def classify_email(self, subject: str, body: str, is_reply: bool = False) -> Dict:
         """
@@ -134,16 +137,16 @@ class EmailClassifier:
             Classification result with should_reply decision and sub_intents
         """
         
-        print(f"   🔍 Classifying: '{subject[:50]}...'")
+        logger.debug(f"   🔍 Classifying: '{subject[:50]}...'")
 
         # Extract main content (remove quotes/signatures)
         main_content = self._extract_main_content(body)
         content_length = len(main_content)
-        print(f"      Main content: {content_length} chars")
+        logger.debug(f"      Main content: {content_length} chars")
 
         # FILTER 1: Ultra-simple acknowledgment (max 3 words, no questions)
         if self._is_ultra_simple_acknowledgment(main_content):
-            print(f"      ✗ Ultra-simple acknowledgment (<=3 words, no question)")
+            logger.debug(f"      ✗ Ultra-simple acknowledgment (<=3 words, no question)")
             return {
                 'should_reply': False,
                 'reason': 'ultra_simple_acknowledgment',
@@ -154,7 +157,7 @@ class EmailClassifier:
 
         # FILTER 2: Greeting only (standalone)
         if self._is_greeting_only(main_content):
-            print(f"      ✗ Greeting only (standalone)")
+            logger.debug(f"      ✗ Greeting only (standalone)")
             return {
                 'should_reply': False,
                 'reason': 'greeting_only',
@@ -170,11 +173,11 @@ class EmailClassifier:
         # ✅ NEW: Detect sub-intents (emotional nuances)
         sub_intents = self._detect_sub_intents(full_text)
         
-        print(f"      ✓ Passing to Gemini for intelligent analysis")
+        logger.debug(f"      ✓ Passing to Gemini for intelligent analysis")
         if category:
-            print(f"      → Category hint: {category}")
+            logger.debug(f"      → Category hint: {category}")
         if sub_intents:
-            print(f"      → Sub-intents: {list(sub_intents.keys())}")
+            logger.debug(f"      → Sub-intents: {list(sub_intents.keys())}")
         
         return {
             'should_reply': True,  # Default: let Gemini decide

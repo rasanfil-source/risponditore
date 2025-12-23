@@ -56,8 +56,8 @@ class EmailProcessor:
             raise
         
         try:
-            self.gemini = GeminiService()
-            logger.info("✓ Gemini service initialized")
+            self.gemini = GeminiService(sheets_manager=self.sheets)  # Pass sheets for doctrinal KB
+            logger.info("✓ Gemini service initialized with doctrinal KB support")
         except Exception as e:
             logger.error(f"❌ Failed to initialize Gemini service: {e}")
             raise
@@ -65,7 +65,6 @@ class EmailProcessor:
         self.classifier = EmailClassifier()
         logger.info("✓ Classifier initialized")
         
-        self.validator = ResponseValidator()
         self.validator = ResponseValidator()
         logger.info("✓ Response validator initialized")
         

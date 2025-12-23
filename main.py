@@ -172,19 +172,3 @@ def process_emails_http(request):
         }
         return (json.dumps(error_response), 500, {'Content-Type': 'application/json'})
 
-
-# For local testing
-if __name__ == "__main__":
-    import os
-    
-    # Set up environment variables for local testing
-    os.environ['IMPERSONATE_EMAIL'] = 'your-email@yourdomain.com'
-    os.environ['SPREADSHEET_ID'] = 'your-spreadsheet-id'
-    os.environ['GEMINI_API_KEY'] = 'your-api-key'
-    
-    # Test HTTP endpoint
-    class MockRequest:
-        method = 'POST'
-    
-    result = process_emails_http(MockRequest())
-    print(f"Result: {result}")

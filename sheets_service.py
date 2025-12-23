@@ -231,6 +231,120 @@ class SheetsManager:
             raise
     
     # ========================================================================
+    # DOCTRINAL KNOWLEDGE BASE LOADING (THREE LAYERS)
+    # ========================================================================
+    
+    def load_doctrinal_kb(self) -> Dict[str, str]:
+        """
+        Load the three doctrinal KB layers from Google Sheets
+        
+        Layers:
+        - AI_CORE_LITE: Always active (tone, limits, response type)
+        - AI_CORE: Activated for discernment (pastoral situations)
+        - Dottrina: Activated for explicit doctrinal requests
+        
+        Returns:
+            {
+                'ai_core_lite': str,  # Formatted content from AI_CORE_LITE sheet
+                'ai_core': str,       # Formatted content from AI_CORE sheet
+                'dottrina': str       # Formatted content from Dottrina sheet
+            }
+        """
+        cache_key = 'doctrinal_kb'
+        
+        # Check cache first (thread-safe)
+        cached_data = self._get_from_cache(cache_key)
+        if cached_data:
+            logger.info("📦 Loading doctrinal KB from cache")
+            return cached_data
+        
+        logger.info("📊 Loading doctrinal KB layers from Google Sheets...")
+        
+        result = {
+            'ai_core_lite': '',
+            'ai_core': '',
+            'dottrina': ''
+        }
+        
+        # Sheet configurations: (sheet_name, key, columns)
+        sheet_configs = [
+            ('AI_CORE_LITE', 'ai_core_lite', 'A:E'),
+            ('AI_CORE', 'ai_core', 'A:E'),
+            ('Dottrina', 'dottrina', 'A:G'),
+        ]
+        
+        for sheet_name, key, columns in sheet_configs:
+            try:
+                data = self.service.spreadsheets().values().get(
+                    spreadsheetId=config.SPREADSHEET_ID,
+                    range=f'{sheet_name}!{columns}'
+                ).execute()
+                
+                values = data.get('values', [])
+                
+                if not values or len(values) <= 1:
+                    logger.warning(f"⚠️  Sheet {sheet_name} is empty or has only header")
+                    continue
+                
+                # Format rows into readable guidelines
+                formatted = self._format_doctrinal_layer(values, layer_name=sheet_name)
+                result[key] = formatted
+                
+                logger.info(f"   ✓ {sheet_name}: {len(values)-1} rows, {len(formatted)} chars")
+                
+            except Exception as e:
+                logger.error(f"❌ Error loading {sheet_name}: {e}")
+                # Continue with other sheets even if one fails
+        
+        # Cache the result
+        self._set_in_cache(cache_key, result)
+        
+        total_chars = sum(len(v) for v in result.values())
+        logger.info(f"✓ Doctrinal KB loaded ({total_chars} chars total)")
+        
+        return result
+    
+    def _format_doctrinal_layer(self, values: List[List], layer_name: str) -> str:
+        """
+        Format doctrinal layer rows into readable guidelines
+        
+        Args:
+            values: Raw data from sheet (first row is header)
+            layer_name: Name of the layer for context
+            
+        Returns:
+            Formatted string with guidelines
+        """
+        if not values or len(values) <= 1:
+            return ""
+        
+        header = values[0]
+        rows = values[1:]
+        
+        formatted_lines = []
+        formatted_lines.append(f"# {layer_name}")
+        formatted_lines.append("")
+        
+        for row in rows:
+            if not row or not row[0]:
+                continue
+            
+            # Create a structured entry based on available columns
+            entry_parts = []
+            
+            for i, cell in enumerate(row):
+                if cell and cell.strip():
+                    col_name = header[i] if i < len(header) else f"Col{i}"
+                    entry_parts.append(f"- **{col_name}**: {cell.strip()}")
+            
+            if entry_parts:
+                formatted_lines.append("\n".join(entry_parts))
+                formatted_lines.append("")
+        
+        return "\n".join(formatted_lines)
+
+    
+    # ========================================================================
     # REPLACEMENTS LOADING
     # ========================================================================
     
