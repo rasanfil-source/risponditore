@@ -88,8 +88,9 @@ class TerritoryValidator:
             
             # Pattern 2: Con prefissi comuni
             # ✅ FIXED: "abito a" con spazio (non solo "a")
-            # Esempio: "abito in via Rossi 10", "abito al viale Verdi 5", "abito a via Bianchi 3"
-            r'(?:in|abito\s+in|abito\s+al|abito\s+a|al)\s+((?:via|viale|piazza|piazzale|largo|lungotevere|salita)\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+(?:\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+)*)\s+(?:n\.?\s*|civico\s+)?(\d+)',
+            # ✅ FIX #5: Added "abito alle" for feminine plural (e.g., "abito alle Belle Arti 10")
+            # Esempio: "abito in via Rossi 10", "abito al viale Verdi 5", "abito alle Belle Arti 3"
+            r'(?:in|abito\s+in|abito\s+al|abito\s+alle|abito\s+a|al|alle)\s+((?:via|viale|piazza|piazzale|largo|lungotevere|salita)\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+(?:\s+[a-zA-ZàèéìòùÀÈÉÌÒÙ]+)*)\s+(?:n\.?\s*|civico\s+)?(\d+)',
         ]
         
         for pattern in patterns:

@@ -1,6 +1,12 @@
 """
 Email processor module - Orchestrates the email processing pipeline
 Coordinates filtering, classification, and response generation
+
+🏗️ ARCHITECTURAL DECISIONS:
+- SINGLE-EMAIL PROCESSING: Il sistema processa UNA email per invocazione di Cloud Function.
+  Questo elimina problemi di race condition e semplifica la gestione dello stato.
+  La Cloud Function viene triggerata per ogni notifica Pub/Sub da Gmail.
+
 ✅ CLEANED VERSION: Removed duplications and deprecated methods
 ✅ FIXED: Better territory validation logging
 ✅ FIXED: Uses only ResponseValidator (removed legacy validation)
@@ -292,7 +298,13 @@ class EmailProcessor:
 
             # Get last message
             last_message = messages[-1]
-            message_details = self.gmail.extract_message_details(last_message)
+            
+            # ✅ FIX #2: Handle deleted or incomplete messages
+            try:
+                message_details = self.gmail.extract_message_details(last_message)
+            except (KeyError, TypeError) as e:
+                logger.warning(f"   ⚠️ Message deleted or missing fields: {e}")
+                return {'status': 'skipped', 'reason': 'message_deleted_or_incomplete'}
 
             logger.info(f"   From: {message_details['sender_email']}")
             logger.info(f"   Subject: {message_details['subject'][:60]}...")
@@ -416,6 +428,11 @@ class EmailProcessor:
             if len(final_knowledge_base) > config.MAX_KNOWLEDGE_BASE_CHARS:
                 final_knowledge_base = self._smart_truncate_kb(final_knowledge_base)
 
+            # ✅ BUG FIX 1: Check dates in STATIC KB (before dynamic injection) to avoid false positives
+            # This ensures temporal_risk is only triggered if the actual KB content has dates,
+            # not because we added "Today is..." header.
+            static_kb_contains_dates = bool(re.search(r'\d{4}', self.knowledge_base))
+
             # === STAGE 4: Gemini Response Generation ===
             logger.info(f"   🤖 Stage 4: Generating AI response...")
             ai_response = self.gemini.generate_response(
@@ -426,8 +443,10 @@ class EmailProcessor:
                 message_details['sender_email'],
                 summarized_history,
                 category=classification.get('category'),
-                sub_intents=classification.get('sub_intents', {}),  # ✅ NEW: Pass emotional nuances
-                memory_context=memory_context  # 🧠 PASS MEMORY CONTEXT
+                sub_intents=classification.get('sub_intents', {}),
+                memory_context=memory_context,
+                classification_confidence=classification.get('confidence', 0.8),  # ✅ BUG FIX 2: Pass real confidence
+                kb_contains_dates=static_kb_contains_dates  # ✅ BUG FIX 1: Pass static check
             )
 
             # Check if response was generated
@@ -446,7 +465,21 @@ class EmailProcessor:
             # === STAGE 5: ADVANCED RESPONSE VALIDATION ===
             logger.info(f"   🔍 Stage 5: Advanced response validation...")
             
-            # Detect language for validation (Hybrid Logic)
+            # ═══════════════════════════════════════════════════════════════
+            # 🌍 HYBRID LANGUAGE DETECTION - Logica Coordinata
+            # ═══════════════════════════════════════════════════════════════
+            # Due sistemi cooperano per rilevare la lingua:
+            # 1. SPECIALIST (_detect_email_language): Pattern-based, alta precisione
+            #    per IT/EN/ES. Usa keyword pesate e regex word boundaries.
+            # 2. GENERALIST (Gemini quick check): AI-based, rileva lingue esotiche
+            #    (FR, PT, DE) che lo Specialist non copre.
+            # 
+            # Regola di coordinamento:
+            # - Specialist trusted per ES/EN (alta confidenza)
+            # - Gemini trusted per lingue esotiche non coperte
+            # - Default: Specialist (tipicamente IT per parrocchia italiana)
+            # ═══════════════════════════════════════════════════════════════
+            
             specialist_lang = self.gemini._detect_email_language(
                 message_details['body'], 
                 message_details['subject']
@@ -609,8 +642,10 @@ class EmailProcessor:
                 else:
                     temporal_part += parts[1]
                     kb_content = ""
+                    logger.warning("      ⚠️ KB content empty after temporal split")
             else:
                 kb_content = ""
+                logger.warning("      ⚠️ No content after split marker")
         else:
             # Fallback: assume first 2000 chars are temporal
             temporal_part = kb_text[:2000]

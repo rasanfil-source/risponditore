@@ -14,6 +14,7 @@ from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
 from prompt_engine import PromptEngine, PromptContext
+from prompt_context import create_prompt_context
 from knowledge_engine import KnowledgeEngine
 from territory_validator import TerritoryValidator
 from request_classifier import RequestTypeClassifier
@@ -374,7 +375,9 @@ Linee guida per la risposta:
         category: Optional[str] = None,
         sub_intents: Optional[Dict] = None,  # ✅ NEW: Emotional nuances
         detected_language: Optional[str] = None,  # ✅ NEW: Language override from quick check
-        memory_context: Optional[Dict] = None  # 🧠 LIGHT MEMORY CONTEXT
+        memory_context: Optional[Dict] = None,  # 🧠 LIGHT MEMORY CONTEXT
+        classification_confidence: float = 0.8,  # ✅ CORRECTED: Passed from classifier
+        kb_contains_dates: bool = False  # ✅ CORRECTED: Passed from static KB check
     ) -> Optional[str]:
         """
         Generate AI response - CLEANED VERSION
@@ -390,6 +393,10 @@ Linee guida per la risposta:
 
         # Detect language (use override if provided, else fallback to internal detection)
         now = datetime.now(ITALIAN_TZ)
+        
+        # ✅ FIX: Handle None explicitly for conversation_history
+        conversation_history = conversation_history or ""
+        
         if detected_language:
             logger.info(f"   Language pre-detected by Gemini: {detected_language}")
             final_language = detected_language
@@ -425,7 +432,44 @@ Dettaglio: {verification['reason']}
 """
             knowledge_base = territory_context + knowledge_base
 
-        # ✅ FIXED: Use PromptEngine (single source of truth)
+        # ═══════════════════════════════════════════════════════════════
+        # 🧠 DYNAMIC PROMPT FOCUSING (PromptContext)
+        # ═══════════════════════════════════════════════════════════════
+        # Classify request type first (needed for context)
+        request_type_result = self.request_classifier.classify(
+            email_subject, email_content
+        )
+        
+        # Determine if reply
+        is_reply = email_subject.lower().startswith(('re:', 'r:'))
+        
+        # NOTE: kb_contains_dates passed as argument to avoid false positives from injected headers
+        
+        # Create PromptContext to compute concerns and profile
+        prompt_ctx = create_prompt_context(
+            detected_language=final_language,
+            is_reply=is_reply,
+            email_body=email_content,
+            email_subject=email_subject,
+            category=category,
+            confidence=classification_confidence,  # ✅ USES REAL CONFIDENCE
+            sub_intents=sub_intents or {},
+            request_type=request_type_result.get('type', 'technical'),
+            needs_doctrine=request_type_result.get('needs_doctrine', False),
+            memory_exists=bool(memory_context),
+            provided_info_count=len(memory_context.get('provided_info', [])) if memory_context else 0,
+            message_count=len(conversation_history.split('---')) if conversation_history else 1,
+            address_found=territory_info.get('address_found', False),
+            kb_length=len(knowledge_base),
+            kb_contains_dates=kb_contains_dates  # ✅ USES STATIC CHECK
+        )
+        
+        # Log the prompt focusing decision
+        logger.info(f"   🧠 PromptContext: profile={prompt_ctx.profile}, concerns={len(prompt_ctx.meta['active_concerns'])} active")
+        if prompt_ctx.profile != 'heavy':
+            logger.info(f"      Active concerns: {', '.join(prompt_ctx.meta['active_concerns'][:3])}...")
+        
+        # ✅ FIXED: Use PromptEngine with dynamic focusing
         prompt = self.prompt_engine.build_prompt(
             email_content=email_content,
             email_subject=email_subject,
@@ -439,17 +483,15 @@ Dettaglio: {verification['reason']}
             now=now,
             salutation=salutation,
             closing=closing,
-            sub_intents=sub_intents or {},  # ✅ NEW
-            memory_context=memory_context  # 🧠 PASS MEMORY
+            sub_intents=sub_intents or {},
+            memory_context=memory_context,
+            prompt_profile=prompt_ctx.profile,  # 🎯 DYNAMIC PROFILE
+            active_concerns=prompt_ctx.concerns  # 🎯 ACTIVE CONCERNS
         )
         # ═══════════════════════════════════════════════════════════════
         # CONDITIONAL KB INJECTION (Based on Request Type Classification)
         # ═══════════════════════════════════════════════════════════════
-        
-        # Classify request type (Technical vs Pastoral vs Mixed)
-        request_type_result = self.request_classifier.classify(
-            email_subject, email_content
-        )
+        # Note: request_type_result already computed above for PromptContext
         
         guidelines = []
         
@@ -522,6 +564,14 @@ Dettaglio: {verification['reason']}
 
                 logger.info(f"✓ Response generated ({len(generated_text)} chars)")
                 return generated_text
+            
+            # ✅ FIX #7: Handle 429 (rate limit) and 503 (service unavailable) with retry
+            elif response.status_code in (429, 503):
+                error_msg = f"API returned {response.status_code}: {response.text[:200]}"
+                logger.warning(f"⚠️ Transient Gemini API error: {error_msg}")
+                # Raise to trigger retry decorator
+                raise requests.exceptions.RequestException(error_msg)
+            
             else:
                 logger.error(f"❌ Gemini API error: {response.status_code}")
                 logger.error(f"   Response: {response.text[:500]}")
@@ -590,7 +640,6 @@ Conversazione:
 
     def _extract_main_reply(self, content: str) -> str:
         """Extract main reply without quoted text"""
-        import re
         markers = [r'^>', r'^On .* wrote:', r'^Il giorno .* ha scritto:']
         cut_content = content
 
@@ -607,7 +656,6 @@ Conversazione:
         if not text:
             return False
         
-        import re
         cleaned = text.lower().replace(',', '').strip()
         cleaned = re.sub(r'\?', '', cleaned)
         words_in_text = cleaned.split()
@@ -759,12 +807,21 @@ Output JSON atteso:
                         else:
                             data = {}
                     
-                    decision = data.get('reply_needed', True)
+                    # ✅ FIX: Robust boolean validation for reply_needed
+                    # Gemini may return "true" (string) instead of true (boolean)
+                    raw_decision = data.get('reply_needed', True)
+                    if isinstance(raw_decision, bool):
+                        decision = raw_decision
+                    elif isinstance(raw_decision, str):
+                        decision = raw_decision.lower() == 'true'
+                    else:
+                        decision = True  # Failsafe: respond when uncertain
+                    
                     language = data.get('language', 'it').lower()
                     reason = data.get('reason', 'no reason provided')
                     
                     # Normalize common language codes if needed
-                    if language not in ['it', 'en', 'es', 'fr', 'de', 'pt']:
+                    if language not in config.SUPPORTED_LANGUAGES:
                         logger.warning(f"   ⚠️ Possible invalid language code '{language}', defaulting to 'it'")
                         language = 'it'
                     

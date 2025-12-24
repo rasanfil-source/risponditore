@@ -689,10 +689,24 @@ class PromptEngine:
     """
     Modular prompt composition engine
     ✅ ENHANCED: Added critical errors at beginning and end
+    ✅ NEW: Dynamic template filtering based on prompt profile
     """
     
+    # Templates to skip for 'lite' profile (simple requests)
+    LITE_SKIP_TEMPLATES = {
+        'ExamplesTemplate',
+        'FormattingGuidelinesTemplate',
+        'HumanToneGuidelinesTemplate',
+        'SpecialCasesTemplate',
+    }
+    
+    # Templates to skip for 'standard' profile (unless specific concern)
+    STANDARD_SKIP_TEMPLATES = {
+        'ExamplesTemplate',
+    }
+    
     def __init__(self):
-        logger.info("🎨 Initializing Enhanced PromptEngine with strict rule enforcement...")
+        logger.info("🎨 Initializing Enhanced PromptEngine with dynamic focusing...")
         
         # Template pipeline (order matters)
         # 🎯 STRATEGY: Critical errors shown FIRST and LAST for reinforcement
@@ -719,6 +733,40 @@ class PromptEngine:
         
         logger.info(f"✓ Loaded {len(self.template_pipeline)} prompt templates")
     
+    def _should_include_template(
+        self, 
+        template_name: str, 
+        prompt_profile: str,
+        active_concerns: Dict[str, bool]
+    ) -> bool:
+        """
+        Determine if a template should be included based on profile and concerns.
+        
+        Args:
+            template_name: Class name of the template
+            prompt_profile: 'lite', 'standard', or 'heavy'
+            active_concerns: Dictionary of concern flags
+            
+        Returns:
+            True if template should be included
+        """
+        if prompt_profile == 'heavy':
+            # Heavy profile includes everything
+            return True
+        
+        if prompt_profile == 'lite':
+            # Lite profile skips verbose templates
+            if template_name in self.LITE_SKIP_TEMPLATES:
+                return False
+        
+        if prompt_profile == 'standard':
+            # Standard skips only examples unless formatting_risk is active
+            if template_name in self.STANDARD_SKIP_TEMPLATES:
+                if not active_concerns.get('formatting_risk', False):
+                    return False
+        
+        return True
+    
     def build_prompt(
         self,
         email_content: str,
@@ -734,9 +782,22 @@ class PromptEngine:
         salutation: str,
         closing: str,
         sub_intents: Dict = None,
-        memory_context: Dict = None
+        memory_context: Dict = None,
+        prompt_profile: str = 'heavy',
+        active_concerns: Dict[str, bool] = None
     ) -> str:
-        """Build optimized prompt with critical rules reinforcement"""
+        """
+        Build optimized prompt with critical rules reinforcement.
+        
+        ✅ NEW: Supports dynamic template filtering based on prompt_profile.
+        
+        Args:
+            ... (existing args) ...
+            prompt_profile: 'lite', 'standard', or 'heavy' (default: 'heavy')
+            active_concerns: Dictionary of concern flags for conditional inclusion
+        """
+        active_concerns = active_concerns or {}
+        
         context = PromptContext(
             email_content=email_content,
             email_subject=email_subject,
@@ -754,22 +815,32 @@ class PromptEngine:
             memory_context=memory_context or {}
         )
         
-        # Render all templates
+        # Render templates with dynamic filtering
         sections = []
+        skipped_count = 0
+        
         for template in self.template_pipeline:
+            template_name = template.__class__.__name__
+            
+            # 🎯 Dynamic filtering based on profile
+            if not self._should_include_template(template_name, prompt_profile, active_concerns):
+                skipped_count += 1
+                continue
+            
             try:
                 rendered = template.render(context)
                 if rendered:
                     sections.append(rendered)
             except Exception as e:
-                logger.error(f"Error rendering {template.__class__.__name__}: {e}")
+                logger.error(f"Error rendering {template_name}: {e}")
                 continue
         
         # Compose final prompt
         prompt = "\n\n".join(sections)
         prompt += "\n\n**Genera la risposta completa seguendo le linee guida sopra:**"
         
-        logger.debug(f"📝 Prompt size: {len(prompt)} chars (~{len(prompt)//4} tokens)")
+        # Log with profile info
+        logger.info(f"📝 Prompt: {len(prompt)} chars (~{len(prompt)//4} tokens) | profile={prompt_profile} | skipped={skipped_count}")
         
         return prompt
     

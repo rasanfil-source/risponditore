@@ -62,6 +62,10 @@ LOG_VALIDATION_TO_SHEETS = os.environ.get('LOG_VALIDATION_TO_SHEETS', 'false').l
 SIMPLE_ACK_THRESHOLD = 0.75  # Soglia per classificare come semplice ringraziamento
 NEEDS_REPLY_THRESHOLD = 0.30  # Soglia per necessità di risposta
 
+# ============ Supported Languages ============
+# Centralized list of valid language codes for the system
+SUPPORTED_LANGUAGES = ['it', 'en', 'es', 'fr', 'de', 'pt']
+
 # ============ DYNAMIC SEASONAL PERIODS ============
 def get_summer_period(year: int = None) -> tuple:
     """
@@ -115,20 +119,34 @@ SUSPENSION_HOURS = {
 
 # ============ Special Periods ============
 # Format: ((start_month, start_day), (end_month, end_day))
+# During these periods, the system is ACTIVE all day (overrides suspension hours)
+# NOTE: Christmas period (Dec 24 - Jan 6) now follows NORMAL rules:
+#       - Individual holidays (Dec 25, 26, Jan 1, 6) are in HOLIDAYS list
+#       - Weekends are always active
+#       - Weekday suspension hours apply normally
 SPECIAL_PERIODS = [
-    ((12, 24), (1, 6)),     # Christmas to Epiphany
-    ((8, 15), (8, 30)),     # Mid-August vacation
+    ((8, 15), (8, 30)),     # Mid-August vacation - system active all period
 ]
 
 # ============ Holiday Dates ============
-# Format: (month, day)
+# Format: (month, day) - System responds automatically all day on these dates
 HOLIDAYS = [
-    (4, 25),   # April 25 - Liberation Day
-    (5, 1),    # May 1 - Labor Day
-    (8, 15),   # August 15 - Assumption
-    (11, 1),   # November 1 - All Saints' Day
-    (12, 8),   # December 8 - Immaculate Conception
+    (1, 1),    # January 1 - Capodanno (New Year's Day)
+    (1, 6),    # January 6 - Epifania (Epiphany)
+    (4, 25),   # April 25 - Festa della Liberazione (Liberation Day)
+    (5, 1),    # May 1 - Festa del Lavoro (Labor Day)
+    (6, 29),   # June 29 - SS. Pietro e Paolo (Sts. Peter and Paul)
+    (8, 15),   # August 15 - Ferragosto/Assunzione (Assumption)
+    (11, 1),   # November 1 - Ognissanti (All Saints' Day)
+    (12, 8),   # December 8 - Immacolata Concezione (Immaculate Conception)
+    (12, 25),  # December 25 - Natale (Christmas)
+    (12, 26),  # December 26 - Santo Stefano (St. Stephen's Day)
 ]
+
+# ============ Easter-Based Holidays ============
+# These are calculated dynamically each year in utils.py:
+# - Sabato Santo (Holy Saturday - day before Easter)
+# - Pasquetta (Easter Monday - day after Easter)
 
 # ============ Email Ignore Lists ============
 # RENAMED for clarity: can contain both domains and full emails

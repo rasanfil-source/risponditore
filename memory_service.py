@@ -129,6 +129,9 @@ class ConversationMemory:
         except Exception as e:
             # If document doesn't exist, create it
             if "NOT_FOUND" in str(e) or "Not found" in str(e):
-                self.update_memory(thread_id, {"provided_info": topics})
+                try:
+                    self.update_memory(thread_id, {"provided_info": topics})
+                except Exception as create_err:
+                    logger.error(f"❌ Error creating memory document: {create_err}")
             else:
                 logger.error(f"❌ Error adding provided info: {e}")

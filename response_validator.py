@@ -471,8 +471,10 @@ class ResponseValidator:
         kb_phones_raw = re.findall(phone_pattern, knowledge_base)
         
         # Normalize and filter short matches (avoiding incidental number matches)
-        response_phones = set(normalize_phone(p) for p in response_phones_raw if len(normalize_phone(p)) >= 6)
-        kb_phones = set(normalize_phone(p) for p in kb_phones_raw if len(normalize_phone(p)) >= 6)
+        # ✅ FIX #3: Increased from 6 to 8 digits (Italian phones have minimum 8 digits)
+        # This prevents false positives like "ore 930" being flagged as hallucinated phone
+        response_phones = set(normalize_phone(p) for p in response_phones_raw if len(normalize_phone(p)) >= 8)
+        kb_phones = set(normalize_phone(p) for p in kb_phones_raw if len(normalize_phone(p)) >= 8)
         
         invented_phones = response_phones - kb_phones
         

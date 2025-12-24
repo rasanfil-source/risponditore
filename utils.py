@@ -102,7 +102,7 @@ def is_in_suspension_time() -> bool:
     month = now.month
     day = now.day
     
-    # Special periods override suspension
+    # Special periods and holidays override suspension hours
     if is_in_special_period(month, day):
         return False
     
@@ -150,6 +150,31 @@ def is_in_special_period(month: int, day: int) -> bool:
     for holiday_month, holiday_day in config.HOLIDAYS:
         if month == holiday_month and day == holiday_day:
             return True
+    
+    # ═══════════════════════════════════════════════════════════════
+    # ✅ NEW: Easter-based holidays (dynamic dates)
+    # ═══════════════════════════════════════════════════════════════
+    try:
+        now = datetime.now(ITALIAN_TZ)
+        year = now.year
+        
+        # Calculate Easter and related dates
+        easter = get_western_easter_date(year)
+        sabato_santo = easter - timedelta(days=1)  # Holy Saturday (day before Easter)
+        pasquetta = easter + timedelta(days=1)     # Easter Monday (day after Easter)
+        
+        current_date = datetime(year, month, day).date()
+        
+        # Check if today is Sabato Santo or Pasquetta
+        if current_date == sabato_santo:
+            logger.info("✓ Special period: Sabato Santo (Holy Saturday)")
+            return True
+        if current_date == pasquetta:
+            logger.info("✓ Special period: Pasquetta (Easter Monday)")
+            return True
+            
+    except Exception as e:
+        logger.warning(f"⚠️ Error checking Easter-based holidays: {e}")
     
     return False
 

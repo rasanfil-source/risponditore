@@ -1,0 +1,28 @@
+Tipo,Data,Descrizione,Note
+,,--- FESTIVITÀ (Sistema attivo tutto il giorno) ---,
+Festività,01/01,Capodanno,Sistema attivo tutto il giorno
+Festività,06/01,Epifania,Sistema attivo tutto il giorno
+Festività,Sabato Santo (variabile),Giorno precedente la Pasqua,Sistema attivo tutto il giorno
+Festività,Pasquetta (variabile),Lunedì dell'Angelo,Sistema attivo tutto il giorno
+Festività,25/04,Festa della Liberazione,Sistema attivo tutto il giorno
+Festività,01/05,Festa del Lavoro,Sistema attivo tutto il giorno
+Festività,29/06,SS. Pietro e Paolo,Sistema attivo tutto il giorno
+Festività,15/08,Ferragosto (Assunzione),Sistema attivo tutto il giorno
+Festività,01/11,Ognissanti,Sistema attivo tutto il giorno
+Festività,08/12,Immacolata Concezione,Sistema attivo tutto il giorno
+Festività,25/12,Natale,Sistema attivo tutto il giorno
+Festività,26/12,Santo Stefano,Sistema attivo tutto il giorno
+,,
+,,--- PERIODI SPECIALI (Sistema attivo tutto il periodo) ---,
+Periodo Speciale,15/08 - 30/08,Vacanze di Ferragosto,Sistema attivo tutto il periodo
+,,
+,,--- SOSPENSIONE ORARIA (Sistema risponde fuori questi orari) ---,
+Orario Ufficio,Lunedì 08:00-20:00,Orario di ufficio,Sistema sospeso durante questi orari
+Orario Ufficio,Martedì 08:00-14:00,Orario di ufficio,Sistema sospeso durante questi orari
+Orario Ufficio,Mercoledì 08:00-17:00,Orario di ufficio,Sistema sospeso durante questi orari
+Orario Ufficio,Giovedì 08:00-14:00,Orario di ufficio,Sistema sospeso durante questi orari
+Orario Ufficio,Venerdì 08:00-17:00,Orario di ufficio,Sistema sospeso durante questi orari
+,,
+,,--- WEEKEND (Sistema sempre attivo) ---,
+Weekend,Sabato,-,Sistema sempre attivo
+Weekend,Domenica,-,Sistema sempre attivo
