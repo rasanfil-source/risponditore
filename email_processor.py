@@ -13,6 +13,7 @@ Coordinates filtering, classification, and response generation
 """
 
 import logging
+import re
 from typing import Dict, Optional, List
 from gmail_service import GmailManager
 from sheets_service import SheetsManager
@@ -601,6 +602,11 @@ class EmailProcessor:
                     # "provided_info": ... (would need extraction logic)
                 }
                 self.memory.update_memory(thread['id'], memory_update)
+                
+                # 🧠 MARK FIRST SALUTATION AS USED for conversational continuity
+                # This ensures follow-up messages won't repeat ritual greetings
+                self.memory.mark_first_salutation_used(thread['id'])
+                
             except Exception as mem_err:
                 logger.warning(f"   ⚠️ Failed to update memory: {mem_err}")
             

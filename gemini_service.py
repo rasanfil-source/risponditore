@@ -9,7 +9,7 @@ import json
 import time
 from typing import Optional, Dict, Any, Union
 import config
-from utils import get_current_season, get_special_day_greeting
+from utils import get_current_season, get_special_day_greeting, compute_salutation_mode
 from datetime import datetime
 from zoneinfo import ZoneInfo
 import logging
@@ -318,16 +318,48 @@ class GeminiService:
 
         return greeting, closing
 
-    def _get_request_type_hint(self, request_type: str) -> str:
+    def _get_request_type_hint(self, request_type: str, needs_doctrine: bool = False, needs_discernment: bool = False) -> str:
         """
         Generate hint for AI based on classified request type
         
         Args:
             request_type: 'technical', 'pastoral', or 'mixed'
+            needs_doctrine: True if doctrinal content was detected
+            needs_discernment: True if personal discernment is needed
             
         Returns:
             Hint string to guide response style
         """
+        # ═══════════════════════════════════════════════════════════════
+        # CF-02: DOCTRINAL MANDATE - When doctrine is needed WITHOUT discernment
+        # ═══════════════════════════════════════════════════════════════
+        if needs_doctrine and not needs_discernment:
+            return """
+🎯 TIPO RICHIESTA RILEVATO: DOTTRINALE INFORMATIVA
+═══════════════════════════════════════════════════════════════════════════
+
+📖 REGOLA CF-02 - SPIEGAZIONE DOTTRINALE OBBLIGATORIA:
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Questa richiesta è DOTTRINALE/CANONICA in FORMA GENERALE.
+NON coinvolge una situazione personale o discernimento.
+
+✅ IL TUO COMPITO: SPIEGA direttamente l'insegnamento della Chiesa.
+❌ NON rimandare al sacerdote per domande informative.
+
+Linee guida per la risposta:
+- Rispondi in modo CHIARO, COMPLETO e FEDELE al Magistero
+- Fornisci la spiegazione dottrinale richiesta DIRETTAMENTE
+- Usa un tono CATECHETICO ma accessibile
+- Cita principi, non opinioni personali
+- Se hai la Knowledge Base dottrinale, USALA per rispondere
+
+⚠️ ATTENZIONE: Il rinvio al sacerdote in questo caso è IMPROPRIO.
+   La persona chiede di essere INFORMATA, non accompagnata.
+   
+═══════════════════════════════════════════════════════════════════════════
+"""
+        
         if request_type == 'technical':
             return """
 🎯 TIPO RICHIESTA RILEVATO: TECNICA
@@ -445,6 +477,29 @@ Dettaglio: {verification['reason']}
         
         # NOTE: kb_contains_dates passed as argument to avoid false positives from injected headers
         
+        # 🧠 COMPUTE SALUTATION MODE from memory for conversational continuity
+        salutation_state = memory_context.get('salutation_state', {}) if memory_context else {}
+        salutation_mode = compute_salutation_mode(
+            message_count=len(conversation_history.split('---')) if conversation_history else 1,
+            is_reply=is_reply,
+            first_salutation_used=salutation_state.get('first_salutation_used', False),
+            last_interaction_at=salutation_state.get('last_interaction_at'),
+            now=now
+        )
+        logger.info(f"   🧠 Salutation mode: {salutation_mode}")
+        
+        # ═══════════════════════════════════════════════════════════════
+        # 🧠 OVERRIDE SALUTO PER CONTINUITÀ CONVERSAZIONALE
+        # Una regola testuale NON può vincere contro un dato strutturale.
+        # Se il mode dice "no saluto", DEVI toglierlo fisicamente.
+        # ═══════════════════════════════════════════════════════════════
+        if salutation_mode == 'none_or_continuity':
+            salutation = ""  # ⛔ NESSUN SALUTO - lascia che il template decida la frase di continuità
+            logger.info("   🧠 Salutation override: CLEARED (none_or_continuity)")
+        elif salutation_mode == 'soft':
+            salutation = ""  # ⛔ NESSUN SALUTO RITUALE - Gemini sceglierà frase soft
+            logger.info("   🧠 Salutation override: CLEARED (soft mode)")
+        
         # Create PromptContext to compute concerns and profile
         prompt_ctx = create_prompt_context(
             detected_language=final_language,
@@ -461,7 +516,8 @@ Dettaglio: {verification['reason']}
             message_count=len(conversation_history.split('---')) if conversation_history else 1,
             address_found=territory_info.get('address_found', False),
             kb_length=len(knowledge_base),
-            kb_contains_dates=kb_contains_dates  # ✅ USES STATIC CHECK
+            kb_contains_dates=kb_contains_dates,  # ✅ USES STATIC CHECK
+            salutation_mode=salutation_mode  # 🧠 CONVERSATIONAL CONTINUITY
         )
         
         # Log the prompt focusing decision
@@ -486,7 +542,8 @@ Dettaglio: {verification['reason']}
             sub_intents=sub_intents or {},
             memory_context=memory_context,
             prompt_profile=prompt_ctx.profile,  # 🎯 DYNAMIC PROFILE
-            active_concerns=prompt_ctx.concerns  # 🎯 ACTIVE CONCERNS
+            active_concerns=prompt_ctx.concerns,  # 🎯 ACTIVE CONCERNS
+            salutation_mode=salutation_mode  # 🧠 CONVERSATION CONTINUITY
         )
         # ═══════════════════════════════════════════════════════════════
         # CONDITIONAL KB INJECTION (Based on Request Type Classification)
@@ -498,8 +555,12 @@ Dettaglio: {verification['reason']}
         # Level 0 – AI-Core Lite: ALWAYS injected (tone, limits, response type)
         lite = self.knowledge_engine.get_tone_guidelines()
         if lite:
-            # Add request type hint to guide response style
-            type_hint = self._get_request_type_hint(request_type_result['type'])
+            # Add request type hint to guide response style (CF-02 aware)
+            type_hint = self._get_request_type_hint(
+                request_type_result['type'],
+                needs_doctrine=request_type_result.get('needs_doctrine', False),
+                needs_discernment=request_type_result.get('needs_discernment', False)
+            )
             guidelines.append(type_hint)
             guidelines.append(lite)
             logger.info(f"   📋 AI-Core Lite injected ({len(lite)} chars)")

@@ -31,6 +31,7 @@ class PromptContext:
     closing: str
     sub_intents: Dict = field(default_factory=dict)
     memory_context: Dict = field(default_factory=dict)
+    salutation_mode: str = 'full'  # 🧠 'full', 'none_or_continuity', 'soft'
 
 
 class PromptTemplate:
@@ -93,10 +94,29 @@ ESEMPI CORRETTI PER RIFERIMENTO:
 
 
 class SystemRoleTemplate(PromptTemplate):
-    """System role definition with human warmth"""
+    """System role definition with human warmth and doctrinal mandate"""
     
     def render(self, context: PromptContext) -> str:
         return """Sei la segreteria della Parrocchia di Sant'Eugenio a Roma.
+
+═══════════════════════════════════════════════════════════════════════════
+📖 MANDATO DOTTRINALE (CF-02)
+═══════════════════════════════════════════════════════════════════════════
+
+Quando vengono richieste spiegazioni di carattere dottrinale o canonico 
+IN FORMA GENERALE (es. "cos'è un'indulgenza?", "quali sono i criteri per..."),
+il tuo compito è fornire una spiegazione CHIARA, FEDELE e INFORMATIVA
+dell'insegnamento pubblico della Chiesa.
+
+👉 Rimanda a un sacerdote SOLO quando la richiesta riguarda:
+   • Una situazione PERSONALE ("io posso/devo...")
+   • Uno stato di vita concreto che richiede discernimento
+   • Un caso di coscienza individuale
+
+⚠️ Il rinvio al sacerdote NON è una forma di prudenza predefinita,
+ma una risposta ECCEZIONALE riservata ai casi di discernimento personale.
+
+═══════════════════════════════════════════════════════════════════════════
 
 🎯 IL TUO STILE:
 • Professionale ma caloroso
@@ -509,6 +529,73 @@ class ConversationContextTemplate(PromptTemplate):
 """
 
 
+class ConversationContinuityTemplate(PromptTemplate):
+    """
+    🧠 CONVERSATION CONTINUITY - Salutation Mode
+    Prevents mechanical repetition of greetings in follow-up emails.
+    A human doesn't repeat "Buon Natale" in every message of the same thread.
+    """
+    
+    def render(self, context: PromptContext) -> str:
+        # Get salutation mode - now a proper field
+        salutation_mode = context.salutation_mode
+        
+        if salutation_mode == 'full':
+            # First contact: no special instructions needed
+            return ""
+        
+        if salutation_mode == 'none_or_continuity':
+            return """
+═══════════════════════════════════════════════════════════════════════════
+🧠 CONTINUITÀ CONVERSAZIONALE - REGOLA VINCOLANTE
+═══════════════════════════════════════════════════════════════════════════
+
+📌 MODALITÀ SALUTO: FOLLOW-UP RECENTE (conversazione in corso)
+
+La conversazione è già avviata. Questa NON è la prima interazione.
+
+REGOLE OBBLIGATORIE:
+✅ NON usare saluti rituali completi (Buongiorno, Buon Natale, ecc.)
+✅ NON ripetere saluti festivi già usati nel thread
+✅ Inizia DIRETTAMENTE dal contenuto OPPURE usa una frase di continuità
+
+FRASI DI CONTINUITÀ CORRETTE:
+• "Grazie per il messaggio."
+• "Certo, ecco le informazioni richieste."
+• "Volentieri, vediamo insieme."
+• "In merito a quanto ci chiede..."
+
+⚠️ DIVIETO: Ripetere lo stesso saluto è percepito come MECCANICO e non umano.
+
+═══════════════════════════════════════════════════════════════════════════
+"""
+        
+        if salutation_mode == 'soft':
+            return """
+═══════════════════════════════════════════════════════════════════════════
+🧠 CONTINUITÀ CONVERSAZIONALE - REGOLA VINCOLANTE
+═══════════════════════════════════════════════════════════════════════════
+
+📌 MODALITÀ SALUTO: RIPRESA CONVERSAZIONE (dopo una pausa)
+
+La conversazione riprende dopo un po' di tempo.
+
+REGOLE:
+✅ Usa un saluto SOFT, non il rituale standard
+✅ NON usare "Buongiorno/Buonasera" come se fosse il primo contatto
+✅ NON ripetere saluti festivi già usati
+
+SALUTI SOFT CORRETTI:
+• "Ci fa piacere risentirla."
+• "Grazie per averci ricontattato."
+• "Bentornato/a."
+
+═══════════════════════════════════════════════════════════════════════════
+"""
+        
+        return ""
+
+
 class ConversationHistoryTemplate(PromptTemplate):
     """Conversation history context"""
     
@@ -520,7 +607,8 @@ class ConversationHistoryTemplate(PromptTemplate):
 Messaggi precedenti per contesto. Non ripetere info già fornite.
 \"\"\"
 {context.conversation_history}
-\"\"\""""
+\"\"\"
+"""
 
 
 class EmailContentTemplate(PromptTemplate):
@@ -562,9 +650,13 @@ class ResponseGuidelinesTemplate(PromptTemplate):
     """Core response guidelines - ENHANCED with critical reminders"""
     
     def render(self, context: PromptContext) -> str:
+        # 🧠 Handle empty salutation (conversation continuity mode)
+        salutation_line = context.salutation if context.salutation else "[Frase di continuità O inizia direttamente dal contenuto]"
+        
         if context.detected_language == 'en':
+            salutation_line_en = context.salutation if context.salutation else "[Continuity phrase OR start directly with content]"
             format_section = f"""1. **Response Format (ENGLISH REQUIRED):**
-   {context.salutation}
+   {salutation_line_en}
    [Concise and relevant body - ✅ USE FORMATTING IF APPROPRIATE]
    {context.closing}
    Parish Secretariat of Sant'Eugenio"""
@@ -584,8 +676,9 @@ class ResponseGuidelinesTemplate(PromptTemplate):
    ❌ Repeated URL in link: [tinyurl.com/x](https://tinyurl.com/x) → WRONG
    ✅ Description in link: Registration form: https://tinyurl.com/x → CORRECT"""
         elif context.detected_language == 'es':
+            salutation_line_es = context.salutation if context.salutation else "[Frase de continuidad O comienza directamente con el contenido]"
             format_section = f"""1. **Formato de respuesta (ESPAÑOL REQUERIDO):**
-   {context.salutation}
+   {salutation_line_es}
    [Cuerpo conciso y pertinente - ✅ USA FORMATO SI ES APROPIADO]
    {context.closing}
    Secretaría Parroquia Sant'Eugenio"""
@@ -606,7 +699,7 @@ class ResponseGuidelinesTemplate(PromptTemplate):
    ✅ Descripción: Formulario: https://tinyurl.com/x → BIEN"""
         else:
             format_section = f"""1. **Formato risposta:**
-   {context.salutation}
+   {salutation_line}
    [Corpo conciso e pertinente - ✅ USA FORMATTAZIONE SE APPROPRIATO]
    {context.closing}
    Segreteria Parrocchia Sant'Eugenio"""
@@ -714,7 +807,8 @@ class PromptEngine:
             CriticalErrorsTemplate(),  # 🆕 Show critical errors FIRST
             SystemRoleTemplate(),
             LanguageInstructionTemplate(),
-            ConversationContextTemplate(),  # 🧠 NEW: Memory context
+            ConversationContextTemplate(),  # 🧠 Memory context
+            ConversationContinuityTemplate(),  # 🧠 Salutation mode for follow-ups
             KnowledgeBaseTemplate(),
             TerritoryVerificationTemplate(),
             SeasonalContextTemplate(),
@@ -784,7 +878,8 @@ class PromptEngine:
         sub_intents: Dict = None,
         memory_context: Dict = None,
         prompt_profile: str = 'heavy',
-        active_concerns: Dict[str, bool] = None
+        active_concerns: Dict[str, bool] = None,
+        salutation_mode: str = 'full'  # 🧠 NEW: For conversation continuity
     ) -> str:
         """
         Build optimized prompt with critical rules reinforcement.
@@ -812,7 +907,8 @@ class PromptEngine:
             salutation=salutation,
             closing=closing,
             sub_intents=sub_intents or {},
-            memory_context=memory_context or {}
+            memory_context=memory_context or {},
+            salutation_mode=salutation_mode  # 🧠 Pass to context
         )
         
         # Render templates with dynamic filtering

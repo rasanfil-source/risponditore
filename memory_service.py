@@ -24,7 +24,12 @@ class ConversationMemory:
         "provided_info": ["orari_messe", "contatti"], # List of info already given
         "last_updated": timestamp,
         "message_count": int,
-        "participants": ["..."]
+        "participants": ["..."],
+        "salutation_state": {
+            "first_salutation_used": True | False,
+            "special_greeting_used": True | False,
+            "last_interaction_at": timestamp
+        }
     }
     """
     
@@ -135,3 +140,75 @@ class ConversationMemory:
                     logger.error(f"❌ Error creating memory document: {create_err}")
             else:
                 logger.error(f"❌ Error adding provided info: {e}")
+
+    def mark_first_salutation_used(self, thread_id: str):
+        """
+        Mark that the first salutation has been used in this thread.
+        This prevents repeating ritual greetings in follow-up messages.
+        
+        Args:
+            thread_id: Gmail Thread ID
+        """
+        if not self.client or not thread_id:
+            return
+            
+        try:
+            doc_ref = self.client.collection(self.collection_name).document(thread_id)
+            
+            doc_ref.set({
+                "salutation_state": {
+                    "first_salutation_used": True,
+                    "last_interaction_at": datetime.datetime.now()
+                },
+                "last_updated": datetime.datetime.now()
+            }, merge=True)
+            
+            logger.info(f"🧠 Memory: Marked first salutation used for thread {thread_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error marking salutation used: {e}")
+
+    def mark_special_greeting_used(self, thread_id: str):
+        """
+        Mark that a special greeting (e.g., 'Buon Natale') has been used.
+        Prevents repeating festive greetings in the same thread.
+        
+        Args:
+            thread_id: Gmail Thread ID
+        """
+        if not self.client or not thread_id:
+            return
+            
+        try:
+            doc_ref = self.client.collection(self.collection_name).document(thread_id)
+            
+            doc_ref.set({
+                "salutation_state": {
+                    "special_greeting_used": True,
+                    "last_interaction_at": datetime.datetime.now()
+                },
+                "last_updated": datetime.datetime.now()
+            }, merge=True)
+            
+            logger.info(f"🧠 Memory: Marked special greeting used for thread {thread_id}")
+            
+        except Exception as e:
+            logger.error(f"❌ Error marking special greeting used: {e}")
+
+    def get_salutation_state(self, thread_id: str) -> dict:
+        """
+        Get the salutation state for a thread.
+        
+        Args:
+            thread_id: Gmail Thread ID
+            
+        Returns:
+            Dictionary with salutation state or empty defaults
+        """
+        memory = self.get_memory(thread_id)
+        return memory.get('salutation_state', {
+            'first_salutation_used': False,
+            'special_greeting_used': False,
+            'last_interaction_at': None
+        })
+

@@ -117,14 +117,73 @@ class RequestTypeClassifier:
     # ========================================================================
     
     DOCTRINE_INDICATORS: List[Tuple[str, int]] = [
+        # Richieste esplicite di spiegazione
         (r'\bspiegazione\b', 2),
         (r'\bspiegami\b', 2),
         (r'\bperché la chiesa (?:insegna|dice|crede)\b', 3),
         (r'\bfondamento teologic\w+\b', 3),
+        (r'\binsegnamento della chiesa\b', 3),
+        
+        # Riferimenti al Magistero e fonti
         (r'\bdottrina\b', 2),
         (r'\bmagistero\b', 3),
         (r'\bcatechismo\b', 2),
-        (r'\binsegnamento della chiesa\b', 3),
+        (r'\bdiritto canonico\b', 3),
+        (r'\bcanon\w*\b', 2),  # canone, canonico, canonista
+        
+        # === INDULGENZE E PURGATORIO ===
+        (r'\bindulgenz\w+\b', 3),  # indulgenza, indulgenze
+        (r'\bplenari\w+\b', 3),    # plenaria, plenario
+        (r'\blucrare\b', 3),       # termine tecnico
+        (r'\bpena temporale\b', 3),
+        (r'\bpurgatorio\b', 3),
+        (r'\bsuffragio?\b', 2),    # suffragio, suffragi
+        
+        # === SACRAMENTI (termini teologici) ===
+        (r'\bsacrament\w+\b', 2),  # sacramento, sacramenti, sacramentale
+        (r'\bgrazia\b', 2),
+        (r'\bpeccato (?:mortale|veniale|originale)\b', 3),
+        (r'\bpresenza reale\b', 3),
+        (r'\btransustanziazione\b', 3),
+        
+        # === MORALE E BIOETICA ===
+        (r'\blegge morale\b', 3),
+        (r'\bcoscienza morale\b', 3),
+        (r'\bcastit\w+\b', 2),
+        (r'\beutanasia\b', 3),
+        (r'\baborto\b', 3),
+        (r'\bembrion\w+\b', 3),
+        (r'\bfecondazione (?:artificiale|assistita|in vitro)\b', 3),
+        (r'\bomosessual\w+\b', 3),
+        
+        # === ESCATOLOGIA ===
+        (r'\bvita eterna\b', 3),
+        (r'\brisurrezion\w+\b', 2),
+        (r'\bgiudizio (?:universale|particolare)\b', 3),
+        (r'\bparadiso\b', 2),
+        (r'\binferno\b', 2),
+        
+        # === ECCLESIOLOGIA ===
+        (r'\bprimato (?:di pietro|del papa|petrino)\b', 3),
+        (r'\binfallibilit\w+\b', 3),
+        (r'\bcomunione dei santi\b', 3),
+        (r'\btrinit\w+\b', 3),     # Trinità, trinitario
+        (r'\bincarnazion\w+\b', 2),
+        (r'\bredenzion\w+\b', 2),
+        
+        # === MATRIMONIO (aspetti dottrinali) ===
+        (r'\bindissolubil\w+\b', 3),
+        (r'\bnullit\w+ (?:matrimoniale|del matrimonio)\b', 3),
+        (r'\bvincolo (?:matrimoniale|sacramentale)\b', 3),
+        
+        # === CREMAZIONE E MORTE ===
+        (r'\bcremazion\w+\b', 2),
+        (r'\bdispersion\w+ (?:delle )?ceneri\b', 3),
+        
+        # === DOMANDE INFORMATIVE "QUALI SONO I CRITERI" ===
+        (r'\bquali sono i criteri\b', 3),
+        (r'\bquali (?:sono le )?condizioni\b', 2),
+        (r'\bcosa (?:insegna|dice) la chiesa\b', 3),
     ]
     
     def __init__(self):

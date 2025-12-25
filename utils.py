@@ -88,6 +88,83 @@ def _set_italian_locale() -> bool:
 
 
 # ============================================================================
+# SALUTATION MODE COMPUTATION - Conversational Continuity
+# ============================================================================
+
+# Threshold for considering a follow-up as "recent" (conversation still warm)
+FOLLOWUP_THRESHOLD_HOURS = 48
+
+
+def compute_salutation_mode(
+    *,
+    message_count: int,
+    is_reply: bool,
+    first_salutation_used: bool = False,
+    last_interaction_at: datetime = None,
+    now: datetime = None,
+) -> str:
+    """
+    Compute the appropriate salutation mode for conversational continuity.
+    
+    Prevents mechanical repetition of greetings in follow-up emails.
+    A human doesn't repeat "Buon Natale" in every message of the same thread.
+    
+    Args:
+        message_count: Number of messages in the thread
+        is_reply: Whether this is a reply (Re:)
+        first_salutation_used: Whether the first salutation was already used
+        last_interaction_at: Timestamp of last interaction
+        now: Current timestamp (default: now)
+        
+    Returns:
+        One of:
+        - 'full': Use complete ritual greeting (first contact)
+        - 'none_or_continuity': Skip greeting or use continuity phrase (recent follow-up)
+        - 'soft': Use soft greeting (resumed conversation after pause)
+    """
+    if now is None:
+        now = datetime.now(ITALIAN_TZ)
+    
+    # First message or first contact: full greeting is appropriate
+    if message_count <= 1 or not first_salutation_used:
+        logger.debug("Salutation mode: FULL (first contact)")
+        return "full"
+    
+    # Not a reply: treat as new conversation
+    if not is_reply:
+        logger.debug("Salutation mode: FULL (not a reply)")
+        return "full"
+    
+    # No timestamp available: be cautious, use soft greeting
+    if not last_interaction_at:
+        logger.debug("Salutation mode: SOFT (no timestamp available)")
+        return "soft"
+    
+    # Calculate time delta
+    try:
+        # Handle timezone-naive vs timezone-aware comparison
+        if hasattr(last_interaction_at, 'tzinfo') and last_interaction_at.tzinfo is not None:
+            if hasattr(now, 'tzinfo') and now.tzinfo is None:
+                now = now.replace(tzinfo=last_interaction_at.tzinfo)
+        
+        delta = now - last_interaction_at
+        hours_since_last = delta.total_seconds() / 3600
+        
+        # Recent follow-up: conversation is still "warm"
+        if hours_since_last <= FOLLOWUP_THRESHOLD_HOURS:
+            logger.debug(f"Salutation mode: NONE_OR_CONTINUITY (last interaction {hours_since_last:.1f}h ago)")
+            return "none_or_continuity"
+        
+        # Follow-up after pause: use soft greeting
+        logger.debug(f"Salutation mode: SOFT (last interaction {hours_since_last:.1f}h ago)")
+        return "soft"
+        
+    except Exception as e:
+        logger.warning(f"⚠️ Error computing salutation mode: {e}")
+        return "soft"
+
+
+# ============================================================================
 # SUSPENSION TIME AND SPECIAL PERIODS
 # ============================================================================
 
@@ -387,9 +464,11 @@ def is_special_holiday_mass_time(date_obj: datetime = None) -> bool:
     try:
         easter = get_western_easter_date(year)
         easter_monday = easter + timedelta(days=1)
-        easter_monday_date = easter_monday.date()
         
-        if date_obj.date() == easter_monday_date:
+        # Normalize date_obj to date for comparison
+        check_date = date_obj.date() if hasattr(date_obj, 'date') else date_obj
+        
+        if check_date == easter_monday:
             return True
     except Exception as e:
         logger.warning(f"⚠️ Error calculating Easter Monday: {e}")

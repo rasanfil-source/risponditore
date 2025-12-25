@@ -54,6 +54,9 @@ class PromptContextInput:
     # Temporal signals (computed from email content)
     mentions_dates: bool = False
     mentions_times: bool = False
+    
+    # Salutation mode (computed from conversation state)
+    salutation_mode: str = 'full'  # 'full', 'none_or_continuity', 'soft'
 
 
 class PromptContext:
@@ -182,6 +185,11 @@ class PromptContext:
             'response_scope_control': (
                 i.is_reply or
                 i.confidence < 0.7
+            ),
+            
+            # Salutation Control: Manage greeting style in follow-ups
+            'salutation_control': (
+                i.salutation_mode in ['none_or_continuity', 'soft']
             )
         }
         
@@ -291,6 +299,11 @@ class PromptContext:
         """
         skip_list = self.get_template_filter()
         return template_name not in skip_list
+    
+    @property
+    def salutation_mode(self) -> str:
+        """Get the salutation mode for this context"""
+        return self.input.salutation_mode
 
 
 def create_prompt_context(
@@ -308,7 +321,8 @@ def create_prompt_context(
     message_count: int = 1,
     address_found: bool = False,
     kb_length: int = 0,
-    kb_contains_dates: bool = False
+    kb_contains_dates: bool = False,
+    salutation_mode: str = 'full'
 ) -> PromptContext:
     """
     Factory function to create PromptContext with sensible defaults.
@@ -330,7 +344,8 @@ def create_prompt_context(
         message_count=message_count,
         address_found=address_found,
         kb_length=kb_length,
-        kb_contains_dates=kb_contains_dates
+        kb_contains_dates=kb_contains_dates,
+        salutation_mode=salutation_mode
     )
     
     return PromptContext(input_obj)
