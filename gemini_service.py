@@ -24,6 +24,49 @@ logger = logging.getLogger(__name__)
 
 ITALIAN_TZ = ZoneInfo("Europe/Rome")
 
+# ============================================================================
+# AUTO-CORRECTION: Capital After Comma
+# ============================================================================
+# Parole che NON devono essere maiuscole dopo virgola (nomi propri esclusi)
+FORBIDDEN_CAPS_AFTER_COMMA = [
+    # Verbi italiani
+    'Siamo', 'Restiamo', 'Sono', 'È', "E'", 'Era', 'Sarà',
+    'Ho', 'Hai', 'Ha', 'Abbiamo', 'Avete', 'Hanno',
+    'Vorrei', 'Vorremmo', 'Volevamo', 'Desideriamo', 'Informiamo',
+    # Articoli
+    'Il', 'Lo', 'La', 'I', 'Gli', 'Le', 'Un', 'Uno', 'Una', "Un'",
+    # Preposizioni
+    'Per', 'Con', 'In', 'Su', 'Tra', 'Fra', 'Da', 'Di',
+    # Congiunzioni
+    'Ma', 'Se', 'Che', 'Non', 'Sì', 'No',
+    # Pronomi
+    'Vi', 'Ti', 'Mi', 'Ci', 'Si', 'Li',
+    # Altri
+    'Ecco', 'Gentile', 'Caro', 'Cara', 'Spettabile',
+    # English
+    'We', 'Are', 'Were', 'Have', 'Had', 'Will', 'Would',
+    'The', 'An', 'For', 'With', 'On', 'At',
+    'But', 'If', 'That', 'Not', 'Yes',
+    # Spanish
+    'Estamos', 'Somos', 'Estaremos', 'Seremos',
+    'El', 'Los', 'Las',
+    'Por', 'En', 'De',
+    'Pero', 'Que', 'Sí'
+]
+
+def fix_capital_after_comma(text: str) -> str:
+    """
+    Corregge maiuscole vietate dopo virgola, rispettando nomi propri e sigle.
+    Es: ", Siamo" -> ", siamo" ma ", Giovanni" resta invariato.
+    """
+    for word in FORBIDDEN_CAPS_AFTER_COMMA:
+        # Gestisce vari contesti: ", Siamo " / ", Siamo," / ", Siamo."
+        text = text.replace(f', {word} ', f', {word.lower()} ')
+        text = text.replace(f', {word},', f', {word.lower()},')
+        text = text.replace(f', {word}.', f', {word.lower()}.')
+        text = text.replace(f', {word}\n', f', {word.lower()}\n')
+    return text
+
 
 def retry_on_failure(max_retries=3, delay=2, backoff_factor=2):
     """Decorator for automatic retry with exponential backoff"""
@@ -618,6 +661,9 @@ Dettaglio: {verification['reason']}
                     return None
 
                 generated_text = result["candidates"][0]["content"]["parts"][0]["text"]
+                
+                # 🔧 Auto-correzione maiuscole dopo virgola
+                generated_text = fix_capital_after_comma(generated_text)
 
                 if not generated_text or len(generated_text.strip()) == 0:
                     logger.error("❌ Gemini returned empty response")

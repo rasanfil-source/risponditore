@@ -222,12 +222,9 @@ class ResponseValidator:
         details['hallucinations'] = halluc_result
         score *= halluc_result['score']
         
-        # === CHECK 6: Capital After Comma (Grammar - CRITICAL) ===
-        cap_result = self._check_capital_after_comma(response)
-        errors.extend(cap_result['errors'])
-        warnings.extend(cap_result['warnings'])
-        details['capital_after_comma'] = cap_result
-        score *= cap_result['score']
+        # === CHECK 6: Capital After Comma ===
+        # REMOVED: Now handled by auto-correction in gemini_service.py
+        # This allows responses like ", Siamo" to be silently fixed rather than rejected
         
         # === DETERMINE VALIDITY ===
         is_valid = len(errors) == 0 and score >= self.min_valid_score
@@ -490,80 +487,9 @@ class ResponseValidator:
             'hallucinations': hallucinations
         }
     
-    def _check_capital_after_comma(self, response: str) -> Dict:
-        """
-        Check for capital letters immediately following a comma (grammar error)
-        
-        Critical grammar error in Italian:
-        ❌ WRONG: "Buonasera, Siamo lieti..."
-        ✅ RIGHT: "Buonasera, siamo lieti..."
-        
-        The comma doesn't start a new sentence, so lowercase is required.
-        """
-        errors = []
-        warnings = []
-        score = 1.0
-        
-        # List of common words that should NOT be capitalized after a comma
-        # These are institutional/common words, not proper nouns
-        forbidden_caps = [
-            # Verbs (most common violations)
-            'Siamo', 'Restiamo', 'Sono', 'È', 'E\'', 'Era', 'Sarà', 
-            'Ho', 'Hai', 'Ha', 'Abbiamo', 'Avete', 'Hanno', 
-            'Vorrei', 'Vorremmo', 'Volevamo', 'Desideriamo', 'Informiamo',
-            
-            # Articles
-            'Il', 'Lo', 'La', 'I', 'Gli', 'Le', 
-            'Un', 'Uno', 'Una', 'Un\'',
-            
-            # Prepositions
-            'Per', 'Con', 'In', 'Su', 'Tra', 'Fra', 'Da', 'Di', 'A',
-            
-            # Conjunctions and particles
-            'Ma', 'Se', 'Che', 'Non', 'Sì', 'No',
-            
-            # Pronouns
-            'Vi', 'Ti', 'Mi', 'Ci', 'Si', 'Lo', 'La', 'Li', 'Le',
-            
-            # Other common words
-            'Ecco', 'Gentile', 'Caro', 'Cara', 'Spettabile',
-            
-            # English equivalents (for multilingual support)
-            'We', 'Are', 'Were', 'Have', 'Had', 'Will', 'Would',
-            'The', 'A', 'An', 'For', 'With', 'In', 'On', 'At',
-            'But', 'If', 'That', 'Not', 'Yes', 'No',
-            
-            # Spanish equivalents
-            'Estamos', 'Somos', 'Estaremos', 'Seremos',
-            'El', 'La', 'Los', 'Las', 'Un', 'Una',
-            'Por', 'Con', 'En', 'De', 'A',
-            'Pero', 'Si', 'Que', 'No', 'Sí'
-        ]
-        
-        # Regex to find ", Word" - comma followed by space(s) and capital letter
-        pattern = r',\s+([A-ZÀÈÉÌÒÙ][a-zàèéìòù]*)'
-        matches = re.finditer(pattern, response)
-        
-        violations = []
-        for match in matches:
-            word = match.group(1)
-            # Check if it's in our forbidden list
-            if word in forbidden_caps:
-                violations.append(word)
-                errors.append(
-                    f"Grammar error: Capital '{word}' after comma. "
-                    f"Should be lowercase: '{word.lower()}'"
-                )
-        
-        if violations:
-            score *= max(0.5, 1.0 - (len(violations) * 0.15))  # Penalty per violation
-        
-        return {
-            'score': score,
-            'errors': errors,
-            'warnings': warnings,
-            'violations': violations
-        }
+    # _check_capital_after_comma REMOVED
+    # Now handled by auto-correction in gemini_service.py (fix_capital_after_comma function)
+    # This approach silently fixes the error rather than rejecting valid responses
     
     # ========================================================================
     # UTILITY METHODS
